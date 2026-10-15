@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from './db.js'
-import { createLocation, deleteLocation, listLocations, listProductIdsForLocation, saveLocation } from './locations.js'
+import { createLocation, deleteLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation } from './locations.js'
 
 beforeEach(async () => {
   await db.open()
@@ -84,6 +84,24 @@ describe('local location management', () => {
     expect(await listProductIdsForLocation(first.id)).toEqual(['product-1'])
     expect(await listProductIdsForLocation(second.id)).toEqual(['product-1'])
     expect(await db.locationProducts.count()).toBe(2)
+  })
+
+  it('finds every location for a product and reflects link or location deletion', async () => {
+    await db.products.put({ id: 'product-1', name: '商品一' })
+    const first = await saveLocation({ name: '第一間店', city: '東京' }, undefined, ['product-1'])
+    const second = await saveLocation({ name: '第二間店', city: '大阪' }, undefined, ['product-1'])
+    expect((await listLocationsForProduct('product-1')).map(location => location.id).sort()).toEqual([first.id, second.id].sort())
+    expect(await listLocationsForProduct('missing')).toEqual([])
+
+    await saveLocation({ name: '第一間店', city: '東京' }, first.id, [])
+    expect((await listLocationsForProduct('product-1')).map(location => location.id)).toEqual([second.id])
+    await deleteLocation(second.id)
+    expect(await listLocationsForProduct('product-1')).toEqual([])
+  })
+
+  it('ignores a stale relation when its location no longer exists', async () => {
+    await db.locationProducts.put({ id: 'stale', locationId: 'missing', productId: 'product-1' })
+    expect(await listLocationsForProduct('product-1')).toEqual([])
   })
 
   it('rejects missing product links without storing a location', async () => {

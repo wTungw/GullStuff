@@ -266,3 +266,21 @@
 .location-create-product:focus-visible{outline:2px solid #216247;outline-offset:2px}
 .location-create-product:disabled{opacity:.55;cursor:not-allowed}
 .empty-state>p:last-child{margin-bottom:0}
+.product-locations{margin-top:22px;padding:25px 29px}
+.product-locations-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.product-locations-heading .eyebrow{margin-bottom:7px}
+.product-locations-heading h3{margin:0;color:#294e3e;font-size:20px}
+.product-locations-heading h3 span{display:inline-grid;place-items:center;min-width:22px;height:22px;margin-left:5px;padding:0 5px;border-radius:20px;background:#e9efe1;color:#5b7658;font-size:11px;vertical-align:middle}
+.product-location-add{flex:none;border:0;background:transparent;color:#2d7953;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.product-location-add:focus-visible{outline:2px solid #216247;outline-offset:3px}
+.product-location-message{margin:17px 0 0;color:#829488;font-size:12px;line-height:1.7}
+.product-location-message .text-button{padding:3px 7px}
+.linked-location-list{margin-top:15px;border-top:1px solid #e8eee8}
+.linked-location-list .location-row:last-child{border-bottom:0}
+@media(max-width:640px){
+  .product-locations{margin:0 17px 24px;padding:18px 0;border:0;border-top:1px solid #e8eee8;border-radius:0;box-shadow:none}
+  .product-locations-heading .eyebrow{display:none}
+  .product-locations-heading h3{font-size:16px}
+  .product-location-add{font-size:12px}
+  .linked-location-list .location-pin{width:48px;height:48px;font-size:25px}
+}

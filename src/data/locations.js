@@ -29,6 +29,14 @@ export async function listProductIdsForLocation(locationId) {
   return (await db.locationProducts.where('locationId').equals(locationId).toArray()).map(link => link.productId)
 }
 
+export async function listLocationsForProduct(productId) {
+  return db.transaction('r', db.locations, db.locationProducts, async () => {
+    const links = await db.locationProducts.where('productId').equals(productId).toArray()
+    const locations = await db.locations.bulkGet(links.map(link => link.locationId))
+    return locations.filter(Boolean).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+  })
+}
+
 export async function saveLocation(input, id, productIds) {
   const fields = normalize(input)
   if (productIds !== undefined && (!Array.isArray(productIds) || productIds.some(productId => typeof productId !== 'string' || !productId))) {
