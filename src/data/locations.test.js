@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from './db.js'
-import { createLocation, deleteLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation } from './locations.js'
+import { createLocation, deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation, unlinkProductFromLocation } from './locations.js'
 
 beforeEach(async () => {
   await db.open()
@@ -102,6 +102,36 @@ describe('local location management', () => {
   it('ignores a stale relation when its location no longer exists', async () => {
     await db.locationProducts.put({ id: 'stale', locationId: 'missing', productId: 'product-1' })
     expect(await listLocationsForProduct('product-1')).toEqual([])
+  })
+
+  it('links an existing location once and keeps its other product links', async () => {
+    await db.products.bulkAdd([{ id: 'product-1', name: '商品一' }, { id: 'product-2', name: '商品二' }])
+    const location = await saveLocation({ name: '既有店' }, undefined, ['product-2'])
+    const link = await linkProductToLocation('product-1', location.id)
+    expect((await linkProductToLocation('product-1', location.id)).id).toBe(link.id)
+    expect((await listProductIdsForLocation(location.id)).sort()).toEqual(['product-1', 'product-2'])
+    expect((await listLocationsForProduct('product-1')).map(item => item.id)).toEqual([location.id])
+    expect((await listLocations())[0].productCount).toBe(2)
+  })
+
+  it('rejects linking a deleted product or location without an orphan relation', async () => {
+    const location = await createLocation({ name: '既有店' })
+    await expect(linkProductToLocation('missing', location.id)).rejects.toThrow('商品已不存在')
+    await db.products.put({ id: 'product-1', name: '商品一' })
+    await expect(linkProductToLocation('product-1', 'missing')).rejects.toThrow('地點已不存在')
+    expect(await db.locationProducts.count()).toBe(0)
+  })
+
+  it('unlinks only the selected product and keeps the location available', async () => {
+    await db.products.bulkAdd([{ id: 'product-1', name: '商品一' }, { id: 'product-2', name: '商品二' }])
+    const location = await saveLocation({ name: '既有店' }, undefined, ['product-1', 'product-2'])
+    expect(await unlinkProductFromLocation('product-1', location.id)).toBe(true)
+    expect(await unlinkProductFromLocation('product-1', location.id)).toBe(false)
+    expect(await listLocationsForProduct('product-1')).toEqual([])
+    expect(await listProductIdsForLocation(location.id)).toEqual(['product-2'])
+    expect((await listLocations())[0].productCount).toBe(1)
+    expect(await db.products.get('product-1')).toBeTruthy()
+    expect(await db.locations.get(location.id)).toBeTruthy()
   })
 
   it('rejects missing product links without storing a location', async () => {

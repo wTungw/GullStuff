@@ -37,6 +37,33 @@ export async function listLocationsForProduct(productId) {
   })
 }
 
+export async function linkProductToLocation(productId, locationId) {
+  if (!productId || !locationId) throw new Error('請選擇商品與地點。')
+  return db.transaction('rw', db.products, db.locations, db.locationProducts, async () => {
+    if (!(await db.products.get(productId))) throw new Error('商品已不存在，請重新整理頁面。')
+    if (!(await db.locations.get(locationId))) throw new Error('地點已不存在，請重新選擇。')
+    const pair = [locationId, productId]
+    const existing = await db.locationProducts.where('[locationId+productId]').equals(pair).first()
+    if (existing) return existing
+    const now = new Date().toISOString()
+    const link = { id: crypto.randomUUID(), locationId, productId, createdAt: now }
+    await db.locationProducts.add(link)
+    await db.locations.update(locationId, { updatedAt: now })
+    return link
+  })
+}
+
+export async function unlinkProductFromLocation(productId, locationId) {
+  if (!productId || !locationId) throw new Error('請選擇商品與地點。')
+  return db.transaction('rw', db.locations, db.locationProducts, async () => {
+    const link = await db.locationProducts.where('[locationId+productId]').equals([locationId, productId]).first()
+    if (!link) return false
+    await db.locationProducts.delete(link.id)
+    await db.locations.update(locationId, { updatedAt: new Date().toISOString() })
+    return true
+  })
+}
+
 export async function saveLocation(input, id, productIds) {
   const fields = normalize(input)
   if (productIds !== undefined && (!Array.isArray(productIds) || productIds.some(productId => typeof productId !== 'string' || !productId))) {

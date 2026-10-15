@@ -3,8 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import ProductForm from './components/ProductForm.vue'
 import ProductPickerOption from './components/ProductPickerOption.vue'
+import LocationLinkPicker from './components/LocationLinkPicker.vue'
+import LinkedLocationDetail from './components/LinkedLocationDetail.vue'
 import { deleteProduct, filterProducts, listProducts, saveProduct } from './data/products.js'
-import { deleteLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation } from './data/locations.js'
+import { deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation, unlinkProductFromLocation } from './data/locations.js'
 import { useImageUrl } from './composables/useImageUrl.js'
 
 const products = ref([])
@@ -14,6 +16,7 @@ const feedback = ref('')
 let feedbackTimer
 let locationFormRequest = 0
 let linkedLocationsRequest = 0
+let locationPickerRequest = 0
 const saving = ref(false)
 const deleting = ref(false)
 const view = ref('library')
@@ -29,6 +32,17 @@ const locations = ref([])
 const linkedLocations = ref([])
 const linkedLocationsLoading = ref(false)
 const linkedLocationsError = ref(false)
+const locationPickerOpen = ref(false)
+const locationPickerLocations = ref([])
+const locationPickerLinkedIds = ref([])
+const locationPickerLoading = ref(false)
+const locationPickerError = ref('')
+const linkingLocationId = ref('')
+const locationPickerTrigger = ref(null)
+const linkedLocationDetail = ref(null)
+const unlinkingLocation = ref(false)
+const unlinkLocationError = ref('')
+let linkedLocationTrigger = null
 const locationQuery = ref('')
 const locationCity = ref('')
 const locationsLoading = ref(false)
@@ -94,10 +108,88 @@ async function refreshLinkedLocations() {
   }
 }
 watch(() => view.value === 'detail' ? selected.value?.id : null, refreshLinkedLocations)
-async function openLocationForm(location = null, preselectedProductId = null) {
+async function loadLocationPicker() {
+  const productId = selected.value?.id
+  if (!productId) return
+  const requestId = ++locationPickerRequest
+  locationPickerLoading.value = true
+  locationPickerError.value = ''
+  try {
+    const [allLocations, linked] = await Promise.all([listLocations(), listLocationsForProduct(productId)])
+    if (requestId !== locationPickerRequest || !locationPickerOpen.value || selected.value?.id !== productId) return
+    locationPickerLocations.value = allLocations
+    locationPickerLinkedIds.value = linked.map(location => location.id)
+  } catch { if (requestId === locationPickerRequest) locationPickerError.value = '無法讀取地點，請重試。' }
+  finally { if (requestId === locationPickerRequest) locationPickerLoading.value = false }
+}
+function openLocationPicker() {
+  locationPickerLocations.value = []
+  locationPickerLinkedIds.value = []
+  locationPickerOpen.value = true
+  loadLocationPicker()
+}
+function closeLocationPicker() {
+  if (linkingLocationId.value) return
+  locationPickerRequest += 1
+  locationPickerOpen.value = false
+  locationPickerError.value = ''
+  nextTick(() => locationPickerTrigger.value?.focus())
+}
+async function selectLocationForProduct(locationId) {
+  if (linkingLocationId.value || !selected.value?.id) return
+  linkingLocationId.value = locationId
+  locationPickerError.value = ''
+  try {
+    await linkProductToLocation(selected.value.id, locationId)
+    await refreshLinkedLocations()
+    locationPickerRequest += 1
+    locationPickerOpen.value = false
+    feedback.value = '商品已連結地點。'
+    nextTick(() => locationPickerTrigger.value?.focus())
+  } catch (cause) { locationPickerError.value = cause.message || '連結失敗，請重試。' }
+  finally { linkingLocationId.value = '' }
+}
+function createLocationFromPicker(name) {
+  if (linkingLocationId.value) return
+  closeLocationPicker()
+  openLocationForm(null, selected.value?.id, name)
+}
+function openLinkedLocationDetail(location, event) {
+  linkedLocationTrigger = event.currentTarget
+  unlinkLocationError.value = ''
+  linkedLocationDetail.value = location
+}
+function closeLinkedLocationDetail() {
+  if (!linkedLocationDetail.value || unlinkingLocation.value) return
+  linkedLocationDetail.value = null
+  unlinkLocationError.value = ''
+  nextTick(() => (linkedLocationTrigger?.isConnected ? linkedLocationTrigger : locationPickerTrigger.value)?.focus())
+}
+function editLinkedLocation() {
+  const location = linkedLocationDetail.value
+  closeLinkedLocationDetail()
+  if (location) openLocationForm(location)
+}
+async function unlinkLinkedLocation() {
+  const productId = selected.value?.id
+  const locationId = linkedLocationDetail.value?.id
+  if (!productId || !locationId || unlinkingLocation.value) return
+  unlinkingLocation.value = true
+  unlinkLocationError.value = ''
+  try {
+    await unlinkProductFromLocation(productId, locationId)
+    await refreshLinkedLocations()
+    linkedLocationDetail.value = null
+    feedback.value = '已取消商品與地點的連結。'
+    nextTick(() => locationPickerTrigger.value?.focus())
+  } catch (cause) { unlinkLocationError.value = cause.message || '取消連結失敗，請重試。' }
+  finally { unlinkingLocation.value = false }
+}
+async function openLocationForm(location = null, preselectedProductId = null, initialName = '') {
   const requestId = ++locationFormRequest
   selectedLocation.value = location
   locationDraft.value = Object.fromEntries(['name', 'country', 'city', 'area', 'address', 'notes'].map(key => [key, location?.[key] ?? '']))
+  if (!location) locationDraft.value.name = initialName
   locationExtraOpen.value = Boolean(location?.country || location?.area)
   selectedProductIds.value = preselectedProductId ? [preselectedProductId] : []
   locationProductQuery.value = ''
@@ -170,6 +262,8 @@ function onKeyDown(event) {
     showImagePreview.value = false
     if (locationFormOpen.value && !locationSaving.value) closeLocationForm()
     if (showLocationDelete.value && !locationDeleting.value) showLocationDelete.value = false
+    if (locationPickerOpen.value) closeLocationPicker()
+    if (linkedLocationDetail.value) closeLinkedLocationDetail()
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeyDown))
@@ -259,7 +353,7 @@ async function confirmDelete() {
   } catch { error.value = '刪除失敗，請再試一次。'; showDelete.value = false }
   finally { deleting.value = false }
 }
-function navigate(target) { creatingProductForLocation.value = false; view.value = target; selected.value = null; feedback.value = ''; closeLocationForm(); showLocationDelete.value = false; if (target === 'locations') refreshLocations(); scrollToTop() }
+function navigate(target) { if (unlinkingLocation.value) return; creatingProductForLocation.value = false; closeLocationPicker(); closeLinkedLocationDetail(); view.value = target; selected.value = null; feedback.value = ''; closeLocationForm(); showLocationDelete.value = false; if (target === 'locations') refreshLocations(); scrollToTop() }
 </script>
 
 <template>
@@ -326,11 +420,11 @@ function navigate(target) { creatingProductForLocation.value = false; view.value
         <header class="page-heading detail-heading"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
         <div class="detail-grid"><button ref="imageTrigger" class="detail-photo" type="button" :disabled="!detailImage" :aria-label="detailImage ? `放大檢視 ${selected.name} 的照片` : '尚無商品照片'" @click="showImagePreview = true"><img v-if="detailImage" :src="detailImage" :alt="selected.name" /><span v-else aria-hidden="true">✦</span></button><div class="detail-info panel"><div class="detail-summary"><p class="eyebrow">SAVED ITEM</p><h2>{{ selected.name }}</h2><p class="detail-date">收藏於 {{ new Date(selected.createdAt).toLocaleDateString('zh-TW') }}</p></div><div class="detail-fields"><div v-if="selected.brand"><small>品牌</small><span>{{ selected.brand }}</span></div><div v-if="selected.category"><small>分類</small><span>{{ selected.category }}</span></div><div v-if="selected.model"><small>型號 / 規格</small><span>{{ selected.model }}</span></div><div v-if="selected.notes"><small>備註</small><p class="notes">{{ selected.notes }}</p></div></div><div v-if="![selected.brand, selected.category, selected.model, selected.notes].some(Boolean)" class="detail-empty">還沒有其他資料，隨時可以編輯補上。</div><button class="mobile-detail-delete" type="button" @click="showDelete = true">刪除商品</button></div></div>
         <section class="product-locations panel" aria-labelledby="product-locations-title">
-          <div class="product-locations-heading"><div><p class="eyebrow">WHERE TO FIND IT</p><h3 id="product-locations-title">可購買地點 <span v-if="!linkedLocationsLoading && !linkedLocationsError">{{ linkedLocations.length }}</span></h3></div><button class="product-location-add" type="button" @click="openLocationForm(null, selected.id)">＋ 新增地點</button></div>
+          <div class="product-locations-heading"><div><p class="eyebrow">WHERE TO FIND IT</p><h3 id="product-locations-title">可購買地點 <span v-if="!linkedLocationsLoading && !linkedLocationsError">{{ linkedLocations.length }}</span></h3></div><button ref="locationPickerTrigger" class="product-location-add" type="button" @click="openLocationPicker">＋ 連結地點</button></div>
           <p v-if="linkedLocationsLoading" class="product-location-message" role="status">正在載入地點…</p>
           <div v-else-if="linkedLocationsError" class="product-location-message" role="alert">無法讀取可購買地點。<button class="text-button" type="button" @click="refreshLinkedLocations">重試</button></div>
-          <p v-else-if="!linkedLocations.length" class="product-location-message">還沒有連結地點。新增地點後，這件商品會自動勾選。</p>
-          <div v-else class="linked-location-list"><button v-for="location in linkedLocations" :key="location.id" class="location-row" type="button" :aria-label="`查看並編輯 ${location.name}`" @click="openLocationForm(location)"><span class="location-pin" aria-hidden="true">⌖</span><span class="location-row-main"><strong>{{ location.name }}</strong><small v-if="location.city || location.country">{{ [location.city, location.country].filter(Boolean).join(' · ') }}</small><small v-if="location.address" class="location-row-address">{{ location.address }}</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
+          <p v-else-if="!linkedLocations.length" class="product-location-message">還沒有連結地點。先從既有地點選取；找不到時再新增。</p>
+          <div v-else class="linked-location-list"><button v-for="location in linkedLocations" :key="location.id" class="location-row" type="button" :aria-label="`查看 ${[location.name, location.city, location.country, location.address].filter(Boolean).join('，')} 的地點詳情`" @click="openLinkedLocationDetail(location, $event)"><span class="location-pin" aria-hidden="true">⌖</span><span class="location-row-main"><strong>{{ location.name }}</strong><small v-if="location.city || location.country">{{ [location.city, location.country].filter(Boolean).join(' · ') }}</small><small v-if="location.address" class="location-row-address">{{ location.address }}</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
         </section>
       </template>
 
@@ -339,6 +433,8 @@ function navigate(target) { creatingProductForLocation.value = false; view.value
     </main>
     <nav v-if="view !== 'form' && view !== 'detail'" class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: view === 'library' }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: view === 'locations' }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
     <div v-if="showDelete" class="dialog-backdrop" @click.self="showDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-desc"><span class="dialog-icon">!</span><h2 id="delete-title">刪除這件商品？</h2><p id="delete-desc">「{{ selected?.name }}」與它的照片會從這台裝置永久刪除，無法復原。</p><div class="dialog-actions"><button class="secondary-button" :disabled="deleting" @click="showDelete = false">取消</button><button class="danger-fill" :disabled="deleting" @click="confirmDelete">{{ deleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
+    <LocationLinkPicker v-if="locationPickerOpen" :locations="locationPickerLocations" :linked-ids="locationPickerLinkedIds" :loading="locationPickerLoading" :error="locationPickerError" :busy-id="linkingLocationId" @close="closeLocationPicker" @retry="loadLocationPicker" @select="selectLocationForProduct" @create="createLocationFromPicker" />
+    <LinkedLocationDetail v-if="linkedLocationDetail" :location="linkedLocationDetail" :busy="unlinkingLocation" :error="unlinkLocationError" @close="closeLinkedLocationDetail" @unlink="unlinkLinkedLocation" @edit="editLinkedLocation" />
     <div v-if="locationFormOpen" class="dialog-backdrop" @click.self="closeLocationForm">
       <form class="dialog location-dialog" role="dialog" aria-modal="true" aria-labelledby="location-form-title" @submit.prevent="handleLocationSave">
         <h2 id="location-form-title">{{ selectedLocation ? '編輯地點' : '新增地點' }}</h2>
