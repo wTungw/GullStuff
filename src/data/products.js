@@ -1,4 +1,5 @@
 import { db } from './db.js'
+import { identityPart } from './identity.js'
 
 const clean = value => typeof value === 'string' ? value.trim() : ''
 
@@ -37,6 +38,10 @@ export async function saveProduct(input, imageChange, id) {
   return db.transaction('rw', db.products, db.images, async () => {
     const existing = id ? await db.products.get(id) : null
     if (id && !existing) throw new Error('找不到這項商品，可能已被刪除。')
+    if (!existing || identityPart(existing.name) !== identityPart(fields.name)) {
+      const sameName = (await db.products.toArray()).some(product => product.id !== id && identityPart(product.name) === identityPart(fields.name))
+      if (sameName) throw new Error('已有同名商品，請使用不同名稱。')
+    }
     const productId = id ?? crypto.randomUUID()
     let imageReference = existing?.imageReference ?? null
     if (imageChange !== undefined) {

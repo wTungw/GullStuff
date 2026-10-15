@@ -28,6 +28,18 @@ describe('local product management', () => {
     await expect(saveProduct({ ...sample, name: '  ' })).rejects.toThrow('商品名稱')
     expect(await listProducts()).toHaveLength(0)
   })
+  it('keeps product names unique after whitespace and case normalization', async () => {
+    const created = await saveProduct({ ...sample, name: 'Travel Cup' })
+    await expect(saveProduct({ ...sample, name: '  travel   cup  ' })).rejects.toThrow('同名商品')
+    expect((await saveProduct({ ...sample, name: ' Travel Cup ' }, undefined, created.id)).id).toBe(created.id)
+    expect(await db.products.count()).toBe(1)
+  })
+  it('allows editing an existing legacy duplicate without changing its name', async () => {
+    await db.products.bulkPut([{ id: 'old-1', name: '舊商品' }, { id: 'old-2', name: '舊商品' }])
+    const edited = await saveProduct({ ...sample, name: '舊商品', notes: '已更新' }, undefined, 'old-1')
+    expect(edited.notes).toBe('已更新')
+    expect(await db.products.count()).toBe(2)
+  })
   it('stores, replaces and removes image blobs without orphans', async () => {
     const first = new Blob(['first'], { type: 'image/webp' })
     const second = new Blob(['second'], { type: 'image/webp' })
