@@ -1,0 +1,37 @@
+# 架構說明
+
+## 決策
+
+採用 Vue 3 + Vite 的靜態 PWA，資料放在瀏覽器 IndexedDB，由 Dexie 統一存取。這個選擇讓手機和桌面共用一套介面、可從靜態主機分發、首次載入後離線使用，且無需維護後端。Vue 3 使用 JavaScript 與 Composition API，符合專案既有開發偏好。
+
+評估過的替代方案：原生行動應用的儲存控制與系統整合更強，但需多平台開發與發佈流程；純 `localStorage` 對圖片、容量與交易一致性不足；SQLite/WASM 增加套件與持久化複雜度。PWA 的代價是資料仍受瀏覽器儲存政策約束，安裝方式和空間上限不如原生應用穩定。未來若可靠離線儲存與裝置整合需求超過 PWA 能力，可保留 UI 與 domain 操作，替換 repository 層為原生 SQLite。
+
+## 資料模型
+
+IndexedDB `gullstuff` schema v1：
+
+| Store | 主要欄位 | 索引與規則 |
+| --- | --- | --- |
+| `products` | `id`, `name`, `imageReference`, `brand`, `category`, `model`, `notes`, `createdAt`, `updatedAt` | 主鍵 `id`；`name`, `category`, `createdAt`, `updatedAt` |
+| `images` | `id`, `blob` | 主鍵 `id`；Blob 與商品分開存 |
+| `locations` | `id`, `name`, `country`, `city`, `area`, `address`, `notes`, `createdAt`, `updatedAt` | 主鍵 `id`；`name`, `country`, `city`, `updatedAt` |
+| `locationProducts` | `id`, `productId`, `locationId`, `price`, `currency`, `notes`, `createdAt` | 主鍵 `id`；`productId`, `locationId`，複合唯一索引 `[locationId+productId]` 防止重複關聯 |
+
+Phase 1 只開放商品操作 API。地點與關聯 store 先保留結構，沒有假資料和未使用的 UI。UUID 是穩定識別碼；時間戳為 ISO 8601。建立、編輯及刪除商品與圖片在同一個 IndexedDB transaction 內執行。刪除商品時，同一 transaction 會移除其所有關聯與圖片，保留獨立地點。IndexedDB 本身不提供外鍵，必須透過 repository transaction 維持參照完整性；Phase 2 新增關聯操作時也需遵守這個規則。未來刪除地點時同理移除關聯。
+
+Dexie schema version 管理升級。新欄位/索引需新增 `db.version(2)` 等 migration，既有資料不可直接破壞。未來備份格式應帶有獨立版本號，匯入先驗證記錄、ID、重複關聯、圖片與參照完整性，再於 transaction 內還原；不要將 IndexedDB 原始內部結構當作備份格式。
+
+## 資料流
+
+```text
+Vue 畫面 → ProductForm / ProductCard → products.js (驗證與 CRUD)
+                                     → Dexie → IndexedDB
+裝置圖片 → image.js (尺寸/格式處理) → products.js → images store
+images store → useImageUrl.js → 暫時 Object URL → 畫面
+```
+
+Component 不直接操作 IndexedDB，圖片 URL 在不需要時釋放。名稱搜尋與分類篩選在記憶體中執行，避免每次輸入都發動 IndexedDB 查詢；對個人收藏量足夠，若未來達到數萬筆再考慮索引或分頁。分類由現有商品產生，因此 API/schema 變更主要集中在資料層；新增欄位需要更新表單與展示。新裝置型號目前不是產品需求，無需策略層。
+
+## 隱私與網路
+
+沒有 API server、登入、同步、追蹤或第三方資源。PWA 的 Service Worker 只快取建置產物；商品 CRUD 和查詢只讀寫 IndexedDB，不發出網路請求。初次載入或版本更新會向部署的靜態主機下載程式，部署商可能有一般存取日誌，但不會收到使用者輸入的商品資料。離線使用需先完成載入與快取。瀏覽器儲存並非永久保證，Phase 4 規劃可攜式備份與還原。
