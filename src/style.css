@@ -284,3 +284,16 @@
   .product-location-add{font-size:12px}
   .linked-location-list .location-pin{width:48px;height:48px;font-size:25px}
 }
+.app-shell{height:100dvh;min-height:0;overflow:hidden}
+.app-shell:not(.collection-shell) .main-content{width:100%;height:100dvh;min-height:0;margin:0 auto;overflow-y:auto;overscroll-behavior:contain}
+.collection-shell .main-content{width:100%;height:100dvh;min-height:0;margin:0 auto;padding-bottom:40px;display:flex;flex-direction:column;overflow:hidden}
+.collection-shell .page-heading,.collection-shell .mobile-bar{flex:none}
+.collection-shell .library-panel{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.collection-shell .section-top,.collection-shell .toolbar,.collection-shell .category-chips{flex:none}
+.collection-results{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.collection-results>.state-box{min-height:100%}
+@media(max-width:640px){
+  .collection-shell .main-content{padding-bottom:calc(62px + env(safe-area-inset-bottom))}
+  .collection-shell .library-panel{padding-bottom:0}
+  .collection-results{padding-bottom:12px}
+}

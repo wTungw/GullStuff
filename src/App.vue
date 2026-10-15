@@ -17,6 +17,7 @@ let linkedLocationsRequest = 0
 const saving = ref(false)
 const deleting = ref(false)
 const view = ref('library')
+const mainContent = ref(null)
 const selected = ref(null)
 const query = ref('')
 const category = ref('')
@@ -176,26 +177,34 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
   window.clearTimeout(feedbackTimer)
 })
-watch(view, () => { showImagePreview.value = false })
+watch(view, async () => {
+  showImagePreview.value = false
+  await nextTick()
+  scrollToTop()
+})
 watch(showImagePreview, async isOpen => {
   await nextTick()
   if (isOpen) imageCloseButton.value?.focus()
   else if (view.value === 'detail') imageTrigger.value?.focus()
 })
+function scrollToTop() {
+  mainContent.value?.scrollTo(0, 0)
+  window.scrollTo(0, 0)
+}
 function openProduct(id) {
   selected.value = products.value.find(p => p.id === id) ?? null
   view.value = selected.value ? 'detail' : 'library'
-  window.scrollTo(0, 0)
+  scrollToTop()
 }
-function startCreate() { selected.value = null; view.value = 'form'; window.scrollTo(0, 0) }
-function startEdit() { view.value = 'form'; window.scrollTo(0, 0) }
+function startCreate() { selected.value = null; view.value = 'form'; scrollToTop() }
+function startEdit() { view.value = 'form'; scrollToTop() }
 function startProductForLocation() {
   if (locationSaving.value || locationLinksLoading.value || locationLinksFailed.value) return
   creatingProductForLocation.value = true
   locationFormOpen.value = false
   selected.value = null
   view.value = 'form'
-  window.scrollTo(0, 0)
+  scrollToTop()
 }
 async function returnToLocationForm(productId) {
   if (!productId) await refresh()
@@ -206,7 +215,7 @@ async function returnToLocationForm(productId) {
   creatingProductForLocation.value = false
   view.value = 'locations'
   locationFormOpen.value = true
-  window.scrollTo(0, 0)
+  scrollToTop()
   await nextTick()
   if (productId) locationProductsSection.value?.focus()
   else locationNameInput.value?.focus()
@@ -214,7 +223,7 @@ async function returnToLocationForm(productId) {
 function goBack() {
   if (creatingProductForLocation.value) { returnToLocationForm(); return }
   view.value = selected.value ? 'detail' : 'library'
-  window.scrollTo(0, 0)
+  scrollToTop()
 }
 async function handleSave(fields, imageChange) {
   saving.value = true
@@ -232,7 +241,7 @@ async function handleSave(fields, imageChange) {
     selected.value = saved
     view.value = 'detail'
     feedback.value = '商品已儲存。'
-    window.scrollTo(0, 0)
+    scrollToTop()
   } catch (cause) { error.value = cause.message || '儲存失敗，請再試一次。' }
   finally { saving.value = false }
 }
@@ -250,11 +259,11 @@ async function confirmDelete() {
   } catch { error.value = '刪除失敗，請再試一次。'; showDelete.value = false }
   finally { deleting.value = false }
 }
-function navigate(target) { creatingProductForLocation.value = false; view.value = target; selected.value = null; feedback.value = ''; closeLocationForm(); showLocationDelete.value = false; if (target === 'locations') refreshLocations(); window.scrollTo(0, 0) }
+function navigate(target) { creatingProductForLocation.value = false; view.value = target; selected.value = null; feedback.value = ''; closeLocationForm(); showLocationDelete.value = false; if (target === 'locations') refreshLocations(); scrollToTop() }
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'collection-shell': view === 'library' || view === 'locations' }">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="navigate('library')"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span><span>GullStuff<small>把喜歡的，好好收著。</small></span></a>
       <div class="nav-label">WORKSPACE</div>
@@ -266,7 +275,7 @@ function navigate(target) { creatingProductForLocation.value = false; view.value
       <div class="sidebar-bottom"><div class="privacy-note"><span aria-hidden="true">✳</span><strong>你的收藏，只屬於你。</strong><p>資料與照片保存在這台裝置，不需註冊帳號。</p></div><button class="nav-item settings-item" :class="{ active: view === 'settings' }" @click="navigate('settings')"><span aria-hidden="true">⚙</span> 設定</button></div>
     </aside>
 
-    <main class="main-content">
+    <main ref="mainContent" class="main-content">
       <div class="mobile-bar" :class="{ 'is-collection': view === 'library' || view === 'locations', 'is-detail': view === 'detail' }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
         <button v-else-if="view !== 'library' && view !== 'locations'" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
@@ -285,12 +294,14 @@ function navigate(target) { creatingProductForLocation.value = false; view.value
           <div class="section-top"><div><h2>所有商品 <span>{{ products.length }}</span></h2><p>一眼找到你記下的每件好物</p></div></div>
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋商品名稱</span><input v-model="query" type="search" placeholder="搜尋商品名稱…" /></label><label class="filter-wrap"><span class="sr-only">依分類篩選</span><select v-model="category"><option value="">所有分類</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select></label></div>
           <div class="category-chips" aria-label="依分類篩選商品"><button type="button" :class="{ active: !category }" @click="category = ''">全部</button><button v-for="item in categories" :key="item" type="button" :class="{ active: category === item }" @click="category = item">{{ item }}</button></div>
-          <div v-if="!loading && products.length" class="collection-caption"><span>{{ query || category ? `找到 ${visible.length} 件` : `已收藏 ${products.length} 件` }}</span><i aria-hidden="true"></i></div>
-          <div v-if="loading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入收藏…</h3></div>
-          <div v-else-if="error" class="state-box"><span class="state-symbol">!</span><h3>無法顯示商品</h3><button class="secondary-button" @click="refresh">重試</button></div>
-          <div v-else-if="!products.length" class="state-box empty-state"><span class="empty-illustration" aria-hidden="true">✦</span><p class="eyebrow">START YOUR COLLECTION</p><h3>從第一件喜歡的東西開始</h3><p>點右上角「新增商品」，記下第一件喜歡的東西。</p></div>
-          <div v-else-if="!visible.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的商品</h3><p>試試其他名稱，或切換分類。</p><button class="text-button" @click="query = ''; category = ''">清除搜尋與篩選</button></div>
-          <div v-else class="product-grid"><ProductCard v-for="product in visible" :key="product.id" :product="product" @open="openProduct" /></div>
+          <div class="collection-results" aria-label="商品列表">
+            <div v-if="!loading && products.length" class="collection-caption"><span>{{ query || category ? `找到 ${visible.length} 件` : `已收藏 ${products.length} 件` }}</span><i aria-hidden="true"></i></div>
+            <div v-if="loading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入收藏…</h3></div>
+            <div v-else-if="error" class="state-box"><span class="state-symbol">!</span><h3>無法顯示商品</h3><button class="secondary-button" @click="refresh">重試</button></div>
+            <div v-else-if="!products.length" class="state-box empty-state"><span class="empty-illustration" aria-hidden="true">✦</span><p class="eyebrow">START YOUR COLLECTION</p><h3>從第一件喜歡的東西開始</h3><p>點右上角「新增商品」，記下第一件喜歡的東西。</p></div>
+            <div v-else-if="!visible.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的商品</h3><p>試試其他名稱，或切換分類。</p><button class="text-button" @click="query = ''; category = ''">清除搜尋與篩選</button></div>
+            <div v-else class="product-grid"><ProductCard v-for="product in visible" :key="product.id" :product="product" @open="openProduct" /></div>
+          </div>
         </section>
       </template>
 
@@ -300,12 +311,14 @@ function navigate(target) { creatingProductForLocation.value = false; view.value
           <div class="section-top"><div><h2>所有地點 <span>{{ locations.length }}</span></h2><p>記下想逛的店與喜歡的地方</p></div></div>
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋地點</span><input v-model="locationQuery" type="search" placeholder="搜尋地點名稱、地區或地址…" /></label><label class="filter-wrap"><span class="sr-only">依地區篩選</span><select v-model="locationCity"><option value="">所有地區</option><option v-for="city in locationCities" :key="city" :value="city">{{ city }}</option></select></label></div>
           <div class="category-chips" aria-label="依地區篩選地點"><button type="button" :class="{ active: !locationCity }" @click="locationCity = ''">全部</button><button v-for="city in locationCities" :key="city" type="button" :class="{ active: locationCity === city }" @click="locationCity = city">{{ city }}</button></div>
-          <div v-if="!locationsLoading && locations.length" class="collection-caption"><span>{{ locationQuery || locationCity ? `找到 ${visibleLocations.length} 個` : `已收藏 ${locations.length} 個` }}地點</span><i aria-hidden="true"></i></div>
-          <div v-if="locationsLoading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入地點…</h3></div>
-          <div v-else-if="locationError && !locationFormOpen" class="state-box"><span class="state-symbol">!</span><h3>無法顯示地點</h3><p>{{ locationError }}</p><button class="secondary-button" type="button" @click="refreshLocations">重試</button></div>
-          <div v-else-if="!locations.length" class="state-box locations-empty"><span class="location-empty-icon" aria-hidden="true">⌖</span><h2>還沒有地點</h2><p>點右上角「新增地點」，開始收藏想逛的店與喜歡的地方。</p></div>
-          <div v-else-if="!visibleLocations.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的地點</h3><p>試試其他名稱，或切換地區。</p><button class="text-button" type="button" @click="locationQuery = ''; locationCity = ''">清除搜尋與篩選</button></div>
-          <div v-else class="locations-list"><button v-for="location in visibleLocations" :key="location.id" class="location-row" type="button" :aria-label="`編輯 ${location.name}${location.address ? `，${location.address}` : ''}，已連結 ${location.productCount} 件商品`" @click="openLocationForm(location)"><span class="location-pin" aria-hidden="true">⌖</span><span class="location-row-main"><strong>{{ location.name }}</strong><small v-if="location.city || location.country">{{ [location.city, location.country].filter(Boolean).join(' · ') }}</small><small v-if="location.address" class="location-row-address">{{ location.address }}</small><small class="location-product-count">{{ location.productCount ? `已連結 ${location.productCount} 件商品` : '尚未連結商品' }}</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
+          <div class="collection-results" aria-label="地點列表">
+            <div v-if="!locationsLoading && locations.length" class="collection-caption"><span>{{ locationQuery || locationCity ? `找到 ${visibleLocations.length} 個` : `已收藏 ${locations.length} 個` }}地點</span><i aria-hidden="true"></i></div>
+            <div v-if="locationsLoading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入地點…</h3></div>
+            <div v-else-if="locationError && !locationFormOpen" class="state-box"><span class="state-symbol">!</span><h3>無法顯示地點</h3><p>{{ locationError }}</p><button class="secondary-button" type="button" @click="refreshLocations">重試</button></div>
+            <div v-else-if="!locations.length" class="state-box locations-empty"><span class="location-empty-icon" aria-hidden="true">⌖</span><h2>還沒有地點</h2><p>點右上角「新增地點」，開始收藏想逛的店與喜歡的地方。</p></div>
+            <div v-else-if="!visibleLocations.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的地點</h3><p>試試其他名稱，或切換地區。</p><button class="text-button" type="button" @click="locationQuery = ''; locationCity = ''">清除搜尋與篩選</button></div>
+            <div v-else class="locations-list"><button v-for="location in visibleLocations" :key="location.id" class="location-row" type="button" :aria-label="`編輯 ${location.name}${location.address ? `，${location.address}` : ''}，已連結 ${location.productCount} 件商品`" @click="openLocationForm(location)"><span class="location-pin" aria-hidden="true">⌖</span><span class="location-row-main"><strong>{{ location.name }}</strong><small v-if="location.city || location.country">{{ [location.city, location.country].filter(Boolean).join(' · ') }}</small><small v-if="location.address" class="location-row-address">{{ location.address }}</small><small class="location-product-count">{{ location.productCount ? `已連結 ${location.productCount} 件商品` : '尚未連結商品' }}</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
+          </div>
         </section>
       </template>
 
