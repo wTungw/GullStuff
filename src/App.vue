@@ -10,6 +10,8 @@ import { deleteProduct, filterProducts, listProducts, saveProduct } from './data
 import { deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, listProductsForLocation, saveLocation, saveLocationPurchase, unlinkProductFromLocation } from './data/locations.js'
 import { useImageUrl } from './composables/useImageUrl.js'
 import { formatPurchasePrice } from './utils/purchase.js'
+import { exportBackup, validateBackup, restoreBackup } from './data/backup.js'
+import { readBackupFile, saveBackupFile } from './platform/backupFile.js'
 
 const products = ref([])
 const loading = ref(true)
@@ -54,6 +56,13 @@ const purchaseSaving = ref(false)
 const purchaseError = ref('')
 const purchaseSavedKey = ref(0)
 let linkedLocationTrigger = null
+const backupBusy = ref(false)
+const backupFeedback = ref('')
+const backupError = ref('')
+const restoreConfirmOpen = ref(false)
+const restoreWarnings = ref([])
+const pendingRestoreBytes = ref(null)
+const restoreCounts = ref(null)
 const locationQuery = ref('')
 const locationCity = ref('')
 const locationsLoading = ref(false)
@@ -459,6 +468,70 @@ function navigate(target) {
   if (target === 'locations') refreshLocations()
   scrollToTop()
 }
+async function handleExportBackup() {
+  backupBusy.value = true
+  backupError.value = ''
+  try {
+    const { bytes, filename } = await exportBackup({ platform: 'web' })
+    saveBackupFile(bytes, filename, 'application/zip')
+    backupFeedback.value = '備份已匯出。'
+  } catch (cause) {
+    backupError.value = cause.message || '匯出備份失敗，請重試。'
+  } finally {
+    backupBusy.value = false
+  }
+}
+async function handleImportBackup() {
+  backupBusy.value = true
+  backupError.value = ''
+  try {
+    const result = await readBackupFile()
+    if (!result) return
+    const { bytes } = result
+    const validation = await validateBackup(bytes)
+    if (!validation.ok) {
+      backupError.value = validation.errors.slice(0, 3).join(' ') + (validation.errors.length > 3 ? '……' : '')
+      return
+    }
+    pendingRestoreBytes.value = bytes
+    restoreWarnings.value = validation.warnings || []
+    restoreCounts.value = validation.manifest?.counts
+    restoreConfirmOpen.value = true
+  } catch (cause) {
+    backupError.value = cause.message || '匯入備份失敗，請重試。'
+  } finally {
+    backupBusy.value = false
+  }
+}
+async function handleConfirmRestore() {
+  if (!pendingRestoreBytes.value) return
+  backupBusy.value = true
+  backupError.value = ''
+  try {
+    const result = await restoreBackup(pendingRestoreBytes.value, { mode: 'replace' })
+    await refresh()
+    await refreshLocations()
+    restoreConfirmOpen.value = false
+    pendingRestoreBytes.value = null
+    restoreWarnings.value = []
+    restoreCounts.value = null
+    backupFeedback.value = `還原完成：商品 ${result.restored.products} 件、地點 ${result.restored.locations} 個、關聯 ${result.restored.locationProducts} 筆、圖片 ${result.restored.images} 張。`
+    if (result.warnings?.length) {
+      backupFeedback.value += `（${result.warnings.length} 個警告）`
+    }
+  } catch (cause) {
+    backupError.value = cause.message || '還原失敗，請重試。'
+  } finally {
+    backupBusy.value = false
+  }
+}
+function closeRestoreConfirm() {
+  if (backupBusy.value) return
+  restoreConfirmOpen.value = false
+  pendingRestoreBytes.value = null
+  restoreWarnings.value = []
+  restoreCounts.value = null
+}
 </script>
 
 <template>
@@ -542,9 +615,26 @@ function navigate(target) {
       </template>
 
       <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" @save="handleSave" @cancel="goBack" />
+
+      <template v-else-if="view === 'settings'">
+        <header class="page-heading settings-heading"><div><p class="eyebrow">DATA MANAGEMENT</p><h1>設定<span class="heading-spark">✦</span></h1><p class="subtext">管理你的收藏資料。</p></div></header>
+        <section class="settings-panel panel">
+          <div class="settings-section">
+            <h2>備份與還原</h2>
+            <p class="settings-intro">備份包含所有商品、地點、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料（毀滅性操作）。</p>
+            <div class="settings-actions">
+              <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
+              <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
+            </div>
+            <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>
+            <p v-if="backupError" class="settings-error" role="alert">{{ backupError }}</p>
+          </div>
+        </section>
+      </template>
+
       <div v-else class="coming-soon"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><span class="coming-icon">✦</span><p class="eyebrow">COMING SOON</p><h1>{{ { locations: '地點清單', overview: '收藏總覽', settings: '設定' }[view] }}</h1><p>這個功能正在規劃中。現在先把想買的商品收藏起來吧。</p><button class="primary-button" @click="navigate('library')">查看商品收藏</button></div>
     </main>
-    <nav v-if="view !== 'form' && view !== 'detail' && view !== 'location-detail'" class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: view === 'library' }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: view === 'locations' }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
+    <nav class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: ['library', 'detail', 'form'].includes(view) && !creatingProductForLocation }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: view === 'locations' || view === 'location-detail' || creatingProductForLocation }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
     <div v-if="showDelete" class="dialog-backdrop" @click.self="showDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-desc"><span class="dialog-icon">!</span><h2 id="delete-title">刪除這件商品？</h2><p id="delete-desc">「{{ selected?.name }}」與它的照片會從這台裝置永久刪除，無法復原。</p><div class="dialog-actions"><button class="secondary-button" :disabled="deleting" @click="showDelete = false">取消</button><button class="danger-fill" :disabled="deleting" @click="confirmDelete">{{ deleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <LocationLinkPicker v-if="locationPickerOpen" :locations="locationPickerLocations" :linked-ids="locationPickerLinkedIds" :loading="locationPickerLoading" :error="locationPickerError" :busy-id="linkingLocationId" @close="closeLocationPicker" @retry="loadLocationPicker" @select="selectLocationForProduct" @create="createLocationFromPicker" />
     <LinkedLocationDetail v-if="linkedLocationDetail" :location="linkedLocationDetail" :busy="unlinkingLocation" :error="unlinkLocationError" :purchase-saving="purchaseSaving" :purchase-error="purchaseError" :purchase-saved-key="purchaseSavedKey" @close="closeLinkedLocationDetail" @unlink="unlinkLinkedLocation" @edit="editLinkedLocation" @save-purchase="saveLinkedLocationPurchase" @clear-purchase-error="purchaseError = ''" />
@@ -574,5 +664,6 @@ function navigate(target) {
     </div>
     <div v-if="showLocationDelete" class="dialog-backdrop" @click.self="showLocationDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="location-delete-title" aria-describedby="location-delete-desc"><span class="dialog-icon">!</span><h2 id="location-delete-title">刪除這個地點？</h2><p id="location-delete-desc">「{{ selectedLocation?.name }}」及其商品關聯會從這台裝置永久刪除，無法復原。商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="locationDeleting" @click="showLocationDelete = false">取消</button><button class="danger-fill" type="button" :disabled="locationDeleting" @click="confirmLocationDelete">{{ locationDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showImagePreview && detailImage" class="image-preview" role="dialog" aria-modal="true" :aria-label="`${selected?.name} 的照片`" @click.self="showImagePreview = false"><button ref="imageCloseButton" class="image-preview-close" type="button" aria-label="關閉照片" @click="showImagePreview = false">×</button><img :src="detailImage" :alt="selected?.name" /></div>
+    <div v-if="restoreConfirmOpen" class="dialog-backdrop" @click.self="closeRestoreConfirm"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-desc"><span class="dialog-icon">!</span><h2 id="restore-title">確認還原備份？</h2><p id="restore-desc">這會取代這台裝置目前的所有資料（毀滅性操作）。<br />商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、關聯 {{ restoreCounts?.locationProducts ?? 0 }} 筆、圖片 {{ restoreCounts?.images ?? 0 }} 張。</p><div v-if="restoreWarnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in restoreWarnings" :key="index">{{ warning }}</li></ul></div><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeRestoreConfirm">取消</button><button class="danger-fill" type="button" :disabled="backupBusy" @click="handleConfirmRestore">{{ backupBusy ? '還原中…' : '確認還原' }}</button></div></div></div>
   </div>
 </template>

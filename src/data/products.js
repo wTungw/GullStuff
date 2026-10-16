@@ -3,7 +3,7 @@ import { identityPart } from './identity.js'
 
 const clean = value => typeof value === 'string' ? value.trim() : ''
 
-function normalize(input) {
+export function normalizeProductInput(input) {
   const product = {
     name: clean(input.name),
     brand: clean(input.brand),
@@ -30,7 +30,7 @@ export async function getImage(id) {
 }
 
 export async function saveProduct(input, imageChange, id) {
-  const fields = normalize(input)
+  const fields = normalizeProductInput(input)
   if (imageChange !== undefined && imageChange !== null && !(imageChange instanceof Blob)) {
     throw new Error('圖片格式無效。')
   }

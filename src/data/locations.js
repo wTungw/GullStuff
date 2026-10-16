@@ -4,7 +4,7 @@ import { locationIdentity } from './identity.js'
 const clean = value => typeof value === 'string' ? value.trim() : ''
 const limits = { name: 150, country: 100, city: 100, area: 100, address: 300, notes: 1000 }
 
-function normalizePurchase(input) {
+export function normalizePurchaseInput(input) {
   const rawPrice = String(input?.price ?? '').trim()
   if (rawPrice && !/^\d{1,9}(?:\.\d{1,2})?$/.test(rawPrice)) throw new Error('價格請輸入最多 9 位整數及 2 位小數。')
   const price = rawPrice ? Number(rawPrice) : null
@@ -23,7 +23,7 @@ function purchaseFromLink(link) {
   }
 }
 
-function normalize(input) {
+export function normalizeLocationInput(input) {
   const fields = Object.fromEntries(Object.keys(limits).map(key => [key, clean(input[key])]))
   if (!fields.name) throw new Error('請填寫地點名稱。')
   for (const [key, limit] of Object.entries(limits)) {
@@ -68,7 +68,7 @@ export async function listProductsForLocation(locationId) {
 
 export async function saveLocationPurchase(productId, locationId, input) {
   if (!productId || !locationId) throw new Error('請選擇商品與地點。')
-  const purchase = normalizePurchase(input)
+  const purchase = normalizePurchaseInput(input)
   return db.transaction('rw', db.locationProducts, async () => {
     const link = await db.locationProducts.where('[locationId+productId]').equals([locationId, productId]).first()
     if (!link) throw new Error('商品與地點的連結已不存在，請重新整理頁面。')
@@ -105,7 +105,7 @@ export async function unlinkProductFromLocation(productId, locationId) {
 }
 
 export async function saveLocation(input, id, productIds) {
-  const fields = normalize(input)
+  const fields = normalizeLocationInput(input)
   if (productIds !== undefined && (!Array.isArray(productIds) || productIds.some(productId => typeof productId !== 'string' || !productId))) {
     throw new Error('商品選擇資料無效，請重新選取。')
   }

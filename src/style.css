@@ -391,3 +391,24 @@
   .location-product-copy strong{font-size:14px}
   .location-product-copy small,.location-product-notes{font-size:11px}
 }
+.settings-panel{max-width:720px;margin:0 auto;padding:28px 32px}
+.settings-section h2{margin:0 0 12px;color:#294e3e;font-size:20px}
+.settings-intro{margin:0 0 20px;color:#526b59;font-size:13px;line-height:1.6}
+.settings-actions{display:flex;gap:10px;margin-bottom:16px}
+.settings-feedback{margin:12px 0 0;color:#2d7953;font-size:12px;font-weight:700}
+.settings-error{margin:12px 0 0;color:#b65446;font-size:12px;font-weight:700}
+.restore-warnings{margin:14px 0 0;padding:12px 14px;background:#fff8e8;border-left:3px solid #d4a01c;border-radius:6px}
+.restore-warnings p{margin:0 0 6px;color:#8a6d1c;font-size:11px;font-weight:700}
+.restore-warnings ul{margin:0;padding:0 0 0 18px;color:#8a6d1c;font-size:11px;line-height:1.6}
+@media(max-width:640px){
+  .settings-heading{display:flex;align-items:flex-start;gap:8px;margin:0;padding:20px 17px 16px}
+  .settings-heading .eyebrow{display:none}
+  .settings-heading h1{font-family:inherit;font-size:27px;font-weight:800;line-height:1.2;letter-spacing:-.8px}
+  .settings-heading .heading-spark{font-size:15px;margin-left:5px}
+  .settings-heading .subtext{margin:6px 0 0;font-size:11px}
+  .settings-panel{padding:18px 15px}
+  .settings-section h2{font-size:16px}
+  .settings-intro{font-size:12px}
+  .settings-actions{flex-direction:column}
+  .settings-actions button{width:100%;justify-content:center}
+}
