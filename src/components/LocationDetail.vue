@@ -7,7 +7,7 @@ defineProps({
   loading: Boolean,
   error: Boolean
 })
-const emit = defineEmits(['retry'])
+const emit = defineEmits(['retry', 'select-product'])
 </script>
 
 <template>
@@ -29,7 +29,7 @@ const emit = defineEmits(['retry'])
       <p v-if="loading" class="location-detail-message" role="status">正在載入商品…</p>
       <p v-else-if="error" class="location-detail-message" role="alert">無法讀取已連結商品。<button class="text-button" type="button" @click="emit('retry')">重試</button></p>
       <p v-else-if="!products.length" class="location-detail-message">這個地點還沒有連結商品。點選「編輯地點」即可加入。</p>
-      <div v-else class="location-detail-product-list"><LocationProductRow v-for="product in products" :key="product.id" :product="product" /></div>
+      <div v-else class="location-detail-product-list"><LocationProductRow v-for="product in products" :key="product.id" :product="product" @select="emit('select-product', $event)" /></div>
     </section>
   </div>
 </template>

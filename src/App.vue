@@ -33,6 +33,7 @@ const imageTrigger = ref(null)
 const imageCloseButton = ref(null)
 const locations = ref([])
 const locationDetail = ref(null)
+const productReturnLocationId = ref(null)
 const locationDetailProducts = ref([])
 const locationDetailLoading = ref(false)
 const locationDetailError = ref(false)
@@ -70,6 +71,7 @@ const locationProductQuery = ref('')
 const locationLinksLoading = ref(false)
 const locationLinksFailed = ref(false)
 const creatingProductForLocation = ref(false)
+let locationProductReturnContext = null
 const locationProductsSection = ref(null)
 const categories = computed(() => [...new Set(products.value.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
 const visible = computed(() => filterProducts(products.value, query.value, category.value))
@@ -345,14 +347,35 @@ function scrollToTop() {
   window.scrollTo(0, 0)
 }
 function openProduct(id) {
+  productReturnLocationId.value = null
   selected.value = products.value.find(p => p.id === id) ?? null
   view.value = selected.value ? 'detail' : 'library'
   scrollToTop()
+}
+function openProductFromLocation(id) {
+  const product = products.value.find(item => item.id === id) ?? locationDetailProducts.value.find(item => item.id === id)
+  if (!product || !locationDetail.value) return
+  productReturnLocationId.value = locationDetail.value.id
+  selected.value = product
+  view.value = 'detail'
+  scrollToTop()
+}
+function returnFromProductDetail() {
+  if (productReturnLocationId.value && locationDetail.value?.id === productReturnLocationId.value) {
+    selected.value = null
+    productReturnLocationId.value = null
+    view.value = 'location-detail'
+    refreshLocationDetailProducts()
+    scrollToTop()
+    return
+  }
+  navigate('library')
 }
 function startCreate() { selected.value = null; view.value = 'form'; scrollToTop() }
 function startEdit() { view.value = 'form'; scrollToTop() }
 function startProductForLocation() {
   if (locationSaving.value || locationLinksLoading.value || locationLinksFailed.value) return
+  locationProductReturnContext = { view: view.value, product: selected.value }
   creatingProductForLocation.value = true
   locationFormOpen.value = false
   selected.value = null
@@ -366,7 +389,9 @@ async function returnToLocationForm(productId) {
     locationProductQuery.value = ''
   }
   creatingProductForLocation.value = false
-  view.value = 'locations'
+  selected.value = locationProductReturnContext?.product ?? null
+  view.value = locationProductReturnContext?.view ?? 'locations'
+  locationProductReturnContext = null
   locationFormOpen.value = true
   scrollToTop()
   await nextTick()
@@ -407,17 +432,23 @@ async function confirmDelete() {
     await refresh()
     selected.value = null
     showDelete.value = false
-    view.value = 'library'
+    if (productReturnLocationId.value && locationDetail.value?.id === productReturnLocationId.value) {
+      productReturnLocationId.value = null
+      view.value = 'location-detail'
+      await refreshLocationDetailProducts()
+    } else view.value = 'library'
     feedback.value = '商品已刪除。'
   } catch { error.value = '刪除失敗，請再試一次。'; showDelete.value = false }
   finally { deleting.value = false }
 }
 function navigate(target) {
-  if (unlinkingLocation.value || purchaseSaving.value) return
+  if (saving.value || deleting.value || locationSaving.value || locationDeleting.value || unlinkingLocation.value || purchaseSaving.value) return
   creatingProductForLocation.value = false
+  locationProductReturnContext = null
   closeLocationPicker()
   closeLinkedLocationDetail()
   locationDetailRequest += 1
+  productReturnLocationId.value = null
   locationDetail.value = null
   locationDetailProducts.value = []
   view.value = target
@@ -447,6 +478,7 @@ function navigate(target) {
       <div class="mobile-bar" :class="{ 'is-collection': view === 'library' || view === 'locations', 'is-detail': view === 'detail' || view === 'location-detail' }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
         <button v-else-if="view === 'location-detail'" class="mobile-back" type="button" aria-label="返回地點列表" @click="navigate('locations')">‹</button>
+        <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
         <button v-else-if="view !== 'library' && view !== 'locations'" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
         <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="view !== 'detail' && view !== 'location-detail'">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : { library: '商品', locations: '地點列表', overview: '總覽', settings: '設定' }[view] }}</span></span>
         <span v-if="view === 'library' || view === 'locations'" class="mobile-bar-spacer"></span>
@@ -494,11 +526,11 @@ function navigate(target) {
 
       <template v-else-if="view === 'location-detail' && locationDetail">
         <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('locations')">← 返回地點列表</button><div class="heading-actions"><button class="secondary-button" type="button" @click="openLocationForm(locationDetail)">編輯地點</button></div></header>
-        <LocationDetail :location="locationDetail" :products="locationDetailProducts" :loading="locationDetailLoading" :error="locationDetailError" @retry="refreshLocationDetailProducts" />
+        <LocationDetail :location="locationDetail" :products="locationDetailProducts" :loading="locationDetailLoading" :error="locationDetailError" @retry="refreshLocationDetailProducts" @select-product="openProductFromLocation" />
       </template>
 
       <template v-else-if="view === 'detail' && selected">
-        <header class="page-heading detail-heading"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
+        <header class="page-heading detail-heading"><button class="back-link" @click="returnFromProductDetail">← 返回{{ productReturnLocationId ? '地點詳情' : '商品收藏' }}</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
         <div class="detail-grid"><button ref="imageTrigger" class="detail-photo" type="button" :disabled="!detailImage" :aria-label="detailImage ? `放大檢視 ${selected.name} 的照片` : '尚無商品照片'" @click="showImagePreview = true"><img v-if="detailImage" :src="detailImage" :alt="selected.name" /><span v-else aria-hidden="true">✦</span></button><div class="detail-info panel"><div class="detail-summary"><p class="eyebrow">SAVED ITEM</p><h2>{{ selected.name }}</h2><p class="detail-date">收藏於 {{ new Date(selected.createdAt).toLocaleDateString('zh-TW') }}</p></div><div class="detail-fields"><div v-if="selected.brand"><small>品牌</small><span>{{ selected.brand }}</span></div><div v-if="selected.category"><small>分類</small><span>{{ selected.category }}</span></div><div v-if="selected.model"><small>型號 / 規格</small><span>{{ selected.model }}</span></div><div v-if="selected.notes"><small>備註</small><p class="notes">{{ selected.notes }}</p></div></div><div v-if="![selected.brand, selected.category, selected.model, selected.notes].some(Boolean)" class="detail-empty">還沒有其他資料，隨時可以編輯補上。</div><button class="mobile-detail-delete" type="button" @click="showDelete = true">刪除商品</button></div></div>
         <section class="product-locations panel" aria-labelledby="product-locations-title">
           <div class="product-locations-heading"><div><p class="eyebrow">WHERE TO FIND IT</p><h3 id="product-locations-title">可購買地點 <span v-if="!linkedLocationsLoading && !linkedLocationsError">{{ linkedLocations.length }}</span></h3></div><button ref="locationPickerTrigger" class="product-location-add" type="button" @click="openLocationPicker">＋ 連結地點</button></div>
