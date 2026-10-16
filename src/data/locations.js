@@ -4,6 +4,25 @@ import { locationIdentity } from './identity.js'
 const clean = value => typeof value === 'string' ? value.trim() : ''
 const limits = { name: 150, country: 100, city: 100, area: 100, address: 300, notes: 1000 }
 
+function normalizePurchase(input) {
+  const rawPrice = String(input?.price ?? '').trim()
+  if (rawPrice && !/^\d{1,9}(?:\.\d{1,2})?$/.test(rawPrice)) throw new Error('價格請輸入最多 9 位整數及 2 位小數。')
+  const price = rawPrice ? Number(rawPrice) : null
+  const currency = clean(input?.currency).toUpperCase()
+  if (price !== null && !/^[A-Z]{3}$/.test(currency)) throw new Error('有價格時，幣別請輸入 3 個英文字母。')
+  const notes = clean(input?.notes)
+  if (notes.length > 500) throw new Error('購買備註最多 500 個字。')
+  return { price, currency: price === null ? '' : currency, notes }
+}
+
+function purchaseFromLink(link) {
+  return {
+    price: typeof link.price === 'number' && Number.isFinite(link.price) ? link.price : null,
+    currency: clean(link.currency),
+    notes: clean(link.notes)
+  }
+}
+
 function normalize(input) {
   const fields = Object.fromEntries(Object.keys(limits).map(key => [key, clean(input[key])]))
   if (!fields.name) throw new Error('請填寫地點名稱。')
@@ -33,7 +52,28 @@ export async function listLocationsForProduct(productId) {
   return db.transaction('r', db.locations, db.locationProducts, async () => {
     const links = await db.locationProducts.where('productId').equals(productId).toArray()
     const locations = await db.locations.bulkGet(links.map(link => link.locationId))
-    return locations.filter(Boolean).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+    return locations.flatMap((location, index) => location ? [{ ...location, purchase: purchaseFromLink(links[index]) }] : [])
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+  })
+}
+
+export async function listProductsForLocation(locationId) {
+  return db.transaction('r', db.products, db.locationProducts, async () => {
+    const links = await db.locationProducts.where('locationId').equals(locationId).toArray()
+    const products = await db.products.bulkGet(links.map(link => link.productId))
+    return products.flatMap((product, index) => product ? [{ ...product, purchase: purchaseFromLink(links[index]) }] : [])
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'))
+  })
+}
+
+export async function saveLocationPurchase(productId, locationId, input) {
+  if (!productId || !locationId) throw new Error('請選擇商品與地點。')
+  const purchase = normalizePurchase(input)
+  return db.transaction('rw', db.locationProducts, async () => {
+    const link = await db.locationProducts.where('[locationId+productId]').equals([locationId, productId]).first()
+    if (!link) throw new Error('商品與地點的連結已不存在，請重新整理頁面。')
+    await db.locationProducts.update(link.id, { ...purchase, updatedAt: new Date().toISOString() })
+    return purchase
   })
 }
 

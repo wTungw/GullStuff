@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from './db.js'
-import { createLocation, deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, saveLocation, unlinkProductFromLocation } from './locations.js'
+import { createLocation, deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, listProductsForLocation, saveLocation, saveLocationPurchase, unlinkProductFromLocation } from './locations.js'
 
 beforeEach(async () => {
   await db.open()
@@ -16,6 +16,7 @@ describe('local location management', () => {
     expect(created.name).toBe('松本清')
     expect((await listLocations()).map(location => location.id)).toContain(created.id)
     expect((await db.locations.get(created.id)).city).toBe('東京')
+    expect(await listProductsForLocation(created.id)).toEqual([])
   })
 
   it('requires a name', async () => {
@@ -102,6 +103,9 @@ describe('local location management', () => {
   it('ignores a stale relation when its location no longer exists', async () => {
     await db.locationProducts.put({ id: 'stale', locationId: 'missing', productId: 'product-1' })
     expect(await listLocationsForProduct('product-1')).toEqual([])
+    const location = await createLocation({ name: '既有店' })
+    await db.locationProducts.put({ id: 'stale-product', locationId: location.id, productId: 'missing' })
+    expect(await listProductsForLocation(location.id)).toEqual([])
   })
 
   it('links an existing location once and keeps its other product links', async () => {
@@ -132,6 +136,51 @@ describe('local location management', () => {
     expect((await listLocations())[0].productCount).toBe(1)
     expect(await db.products.get('product-1')).toBeTruthy()
     expect(await db.locations.get(location.id)).toBeTruthy()
+  })
+
+  it('stores purchase details on one relation without changing the location or other links', async () => {
+    await db.products.bulkAdd([{ id: 'product-1', name: '商品一' }, { id: 'product-2', name: '商品二' }])
+    const location = await saveLocation({ name: '既有店', notes: '地點備註' }, undefined, ['product-1', 'product-2'])
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual({ price: null, currency: '', notes: '' })
+    await saveLocationPurchase('product-1', location.id, { price: '125.50', currency: 'jpy', notes: ' 二樓櫃檯 ' })
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual({ price: 125.5, currency: 'JPY', notes: '二樓櫃檯' })
+    expect((await listLocationsForProduct('product-2'))[0].purchase).toEqual({ price: null, currency: '', notes: '' })
+    expect((await listProductsForLocation(location.id)).map(product => [product.id, product.purchase])).toEqual([
+      ['product-1', { price: 125.5, currency: 'JPY', notes: '二樓櫃檯' }],
+      ['product-2', { price: null, currency: '', notes: '' }]
+    ])
+    expect((await db.locations.get(location.id)).notes).toBe('地點備註')
+    await saveLocation({ name: '既有店', notes: '更新地點備註' }, location.id, ['product-1', 'product-2'])
+    expect((await listLocationsForProduct('product-1'))[0].purchase.price).toBe(125.5)
+    await saveLocationPurchase('product-1', location.id, { price: '', currency: 'TWD', notes: '先確認庫存' })
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual({ price: null, currency: '', notes: '先確認庫存' })
+  })
+
+  it('validates purchase details and requires an existing relation', async () => {
+    await db.products.put({ id: 'product-1', name: '商品一' })
+    const location = await createLocation({ name: '既有店' })
+    await expect(saveLocationPurchase('product-1', location.id, { price: '12.345', currency: 'TWD' })).rejects.toThrow('價格')
+    await expect(saveLocationPurchase('product-1', location.id, { price: '12', currency: 'NT' })).rejects.toThrow('幣別')
+    await expect(saveLocationPurchase('product-1', location.id, { notes: 'x'.repeat(501) })).rejects.toThrow('購買備註')
+    await expect(saveLocationPurchase('product-1', location.id, { price: '12', currency: 'TWD' })).rejects.toThrow('連結已不存在')
+    expect(await db.locationProducts.count()).toBe(0)
+  })
+
+  it('accepts zero and the maximum price while rejecting values outside the supported range', async () => {
+    await db.products.put({ id: 'product-1', name: '商品一' })
+    const location = await saveLocation({ name: '既有店' }, undefined, ['product-1'])
+    await saveLocationPurchase('product-1', location.id, { price: '0', currency: 'TWD' })
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual({ price: 0, currency: 'TWD', notes: '' })
+    await saveLocationPurchase('product-1', location.id, { price: '999999999.99', currency: 'CHF', notes: 'x'.repeat(500) })
+    const beforeInvalidInput = (await listLocationsForProduct('product-1'))[0].purchase
+    expect(beforeInvalidInput).toEqual({ price: 999999999.99, currency: 'CHF', notes: 'x'.repeat(500) })
+    for (const price of ['-1', '1.001', '1000000000', '1,000', '1e3']) {
+      await expect(saveLocationPurchase('product-1', location.id, { price, currency: 'TWD' })).rejects.toThrow('價格')
+    }
+    await expect(saveLocationPurchase('product-1', location.id, { price: '1', currency: '' })).rejects.toThrow('幣別')
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual(beforeInvalidInput)
+    await saveLocationPurchase('product-1', location.id, { price: ' ', currency: 'CHF', notes: ' ' })
+    expect((await listLocationsForProduct('product-1'))[0].purchase).toEqual({ price: null, currency: '', notes: '' })
   })
 
   it('rejects missing product links without storing a location', async () => {
