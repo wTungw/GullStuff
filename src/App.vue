@@ -6,8 +6,11 @@ import ProductPickerOption from './components/ProductPickerOption.vue'
 import LocationLinkPicker from './components/LocationLinkPicker.vue'
 import LinkedLocationDetail from './components/LinkedLocationDetail.vue'
 import LocationDetail from './components/LocationDetail.vue'
+import GroupProductRow from './components/GroupProductRow.vue'
+import GroupIcon from './components/GroupIcon.vue'
 import { deleteProduct, filterProducts, listProducts, saveProduct } from './data/products.js'
 import { deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, listProductsForLocation, saveLocation, saveLocationPurchase, unlinkProductFromLocation } from './data/locations.js'
+import { GROUP_COLORS, GROUP_ICONS, addProductToGroup, deleteGroup, groupAppearance, listGroupIdsForProduct, listGroups, listProductsForGroup, removeProductFromGroup, saveGroup } from './data/groups.js'
 import { useImageUrl } from './composables/useImageUrl.js'
 import { formatPurchasePrice } from './utils/purchase.js'
 import { exportBackup, validateBackup, restoreBackup } from './data/backup.js'
@@ -38,6 +41,7 @@ const imageCloseButton = ref(null)
 const locations = ref([])
 const locationDetail = ref(null)
 const productReturnLocationId = ref(null)
+const productReturnGroupId = ref(null)
 const locationDetailProducts = ref([])
 const locationDetailLoading = ref(false)
 const locationDetailError = ref(false)
@@ -84,6 +88,32 @@ const locationLinksFailed = ref(false)
 const creatingProductForLocation = ref(false)
 let locationProductReturnContext = null
 const locationProductsSection = ref(null)
+const groups = ref([])
+const groupsLoading = ref(false)
+const groupsError = ref('')
+const groupQuery = ref('')
+const groupDetail = ref(null)
+const groupDetailProducts = ref([])
+const groupDetailLoading = ref(false)
+const groupDetailError = ref(false)
+let groupDetailRequest = 0
+let groupFormReturnView = 'groups'
+const groupDraft = ref({ name: '', notes: '', icon: 'folder', color: 'forest' })
+const selectedGroup = ref(null)
+const selectedGroupProductIds = ref([])
+const groupProductQuery = ref('')
+const groupSaving = ref(false)
+const groupFormError = ref('')
+const groupFormLinksFailed = ref(false)
+const groupFormLinksLoading = ref(false)
+let groupFormRequest = 0
+const groupNameInput = ref(null)
+const showGroupDelete = ref(false)
+const groupDeleting = ref(false)
+const groupPickerOpen = ref(false)
+const groupPickerError = ref('')
+const groupPickerBusy = ref(false)
+const productGroupIds = ref([])
 const categories = computed(() => [...new Set(products.value.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
 const visible = computed(() => filterProducts(products.value, query.value, category.value))
 const productChoices = computed(() => {
@@ -97,6 +127,14 @@ const visibleLocations = computed(() => {
     (!needle || [location.name, location.country, location.city, location.area, location.address].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle))) &&
     (!locationCity.value || location.city === locationCity.value)
   )
+})
+const visibleGroups = computed(() => {
+  const needle = groupQuery.value.trim().toLocaleLowerCase('zh-TW')
+  return groups.value.filter(group => !needle || [group.name, group.notes].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle)))
+})
+const groupProductChoices = computed(() => {
+  const needle = groupProductQuery.value.trim().toLocaleLowerCase('zh-TW')
+  return products.value.filter(product => !needle || [product.name, product.brand, product.category].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle)))
 })
 const detailImage = useImageUrl(computed(() => view.value === 'detail' ? selected.value?.imageReference : null))
 
@@ -152,6 +190,11 @@ async function refreshLinkedLocations() {
   }
 }
 watch(() => view.value === 'detail' ? selected.value?.id : null, refreshLinkedLocations)
+watch(() => view.value === 'detail' ? selected.value?.id : null, async productId => {
+  if (!productId) { productGroupIds.value = []; return }
+  try { productGroupIds.value = await listGroupIdsForProduct(productId); await refreshGroups() }
+  catch { productGroupIds.value = [] }
+})
 async function loadLocationPicker() {
   const productId = selected.value?.id
   if (!productId) return
@@ -328,6 +371,139 @@ async function confirmLocationDelete() {
   } catch (cause) { locationError.value = cause.message || '刪除地點失敗，請再試一次。'; showLocationDelete.value = false }
   finally { locationDeleting.value = false }
 }
+async function refreshGroups() {
+  groupsLoading.value = true
+  groupsError.value = ''
+  try { groups.value = await listGroups() }
+  catch { groupsError.value = '無法讀取群組，請重試。' }
+  finally { groupsLoading.value = false }
+}
+async function refreshGroupDetailProducts() {
+  const id = view.value === 'group-detail' ? groupDetail.value?.id : null
+  const requestId = ++groupDetailRequest
+  if (!id) return
+  groupDetailLoading.value = true
+  groupDetailError.value = false
+  try {
+    const result = await listProductsForGroup(id)
+    if (requestId === groupDetailRequest) groupDetailProducts.value = result
+  } catch { if (requestId === groupDetailRequest) groupDetailError.value = true }
+  finally { if (requestId === groupDetailRequest) groupDetailLoading.value = false }
+}
+function openGroupDetail(group) {
+  groupDetail.value = group
+  view.value = 'group-detail'
+  refreshGroupDetailProducts()
+}
+async function openGroupForm(group = null, productId = null) {
+  const requestId = ++groupFormRequest
+  groupFormReturnView = view.value
+  selectedGroup.value = group
+  groupDraft.value = { name: group?.name ?? '', notes: group?.notes ?? '', icon: group?.icon ?? 'folder', color: group?.color ?? 'forest' }
+  groupProductQuery.value = ''
+  selectedGroupProductIds.value = productId ? [productId] : []
+  groupFormError.value = ''
+  groupFormLinksFailed.value = false
+  groupFormLinksLoading.value = Boolean(group)
+  groupPickerOpen.value = false
+  view.value = 'group-form'
+  await nextTick()
+  groupNameInput.value?.focus()
+  if (group) {
+    try {
+      const ids = (await listProductsForGroup(group.id)).map(product => product.id)
+      if (requestId === groupFormRequest) selectedGroupProductIds.value = ids
+    } catch {
+      if (requestId === groupFormRequest) { groupFormLinksFailed.value = true; groupFormError.value = '無法讀取群組商品，請返回後重試。' }
+    } finally { if (requestId === groupFormRequest) groupFormLinksLoading.value = false }
+  }
+}
+function closeGroupForm() {
+  if (groupSaving.value) return
+  groupFormRequest += 1
+  view.value = groupFormReturnView
+  selectedGroup.value = null
+  groupFormError.value = ''
+}
+function toggleGroupProduct(productId, checked) {
+  if (checked && !selectedGroupProductIds.value.includes(productId)) selectedGroupProductIds.value = [...selectedGroupProductIds.value, productId]
+  if (!checked) selectedGroupProductIds.value = selectedGroupProductIds.value.filter(id => id !== productId)
+}
+function groupProductName(productId) { return products.value.find(product => product.id === productId)?.name ?? '已移除的商品' }
+function moveGroupProduct(productId, direction) {
+  const ids = [...selectedGroupProductIds.value]
+  const index = ids.indexOf(productId)
+  const next = index + direction
+  if (index < 0 || next < 0 || next >= ids.length) return
+  const moved = ids[index]
+  ids[index] = ids[next]
+  ids[next] = moved
+  selectedGroupProductIds.value = ids
+}
+async function handleGroupSave() {
+  if (groupSaving.value || loading.value || error.value || groupFormLinksLoading.value || groupFormLinksFailed.value) return
+  groupSaving.value = true
+  groupFormError.value = ''
+  try {
+    const saved = await saveGroup(groupDraft.value, selectedGroup.value?.id, selectedGroupProductIds.value)
+    await refreshGroups()
+    if (groupFormReturnView === 'detail') {
+      view.value = 'detail'
+      productGroupIds.value = await listGroupIdsForProduct(selected.value.id)
+    } else {
+      groupDetail.value = { ...saved, productCount: selectedGroupProductIds.value.length }
+      view.value = 'group-detail'
+      await refreshGroupDetailProducts()
+    }
+    selectedGroup.value = null
+    feedback.value = '群組已儲存。'
+  } catch (cause) { groupFormError.value = cause.message || '儲存群組失敗，請重試。' }
+  finally { groupSaving.value = false }
+}
+async function confirmGroupDelete() {
+  if (!selectedGroup.value || groupDeleting.value) return
+  groupDeleting.value = true
+  try {
+    await deleteGroup(selectedGroup.value.id)
+    await refreshGroups()
+    showGroupDelete.value = false
+    selectedGroup.value = null
+    groupDetail.value = null
+    groupDetailProducts.value = []
+    view.value = 'groups'
+    feedback.value = '群組已刪除。'
+  } catch (cause) { showGroupDelete.value = false; groupFormError.value = cause.message || '刪除群組失敗。' }
+  finally { groupDeleting.value = false }
+}
+async function openGroupPicker() {
+  groupPickerError.value = ''
+  groupPickerOpen.value = true
+  try {
+    await refreshGroups()
+    productGroupIds.value = await listGroupIdsForProduct(selected.value.id)
+  } catch { groupPickerError.value = '無法讀取群組，請重試。' }
+}
+async function toggleProductGroup(groupId) {
+  if (!selected.value || groupPickerBusy.value) return
+  groupPickerBusy.value = true
+  groupPickerError.value = ''
+  try {
+    if (productGroupIds.value.includes(groupId)) await removeProductFromGroup(selected.value.id, groupId)
+    else await addProductToGroup(selected.value.id, groupId)
+    productGroupIds.value = await listGroupIdsForProduct(selected.value.id)
+    await refreshGroups()
+    feedback.value = '群組已更新。'
+  } catch (cause) { groupPickerError.value = cause.message || '更新群組失敗。' }
+  finally { groupPickerBusy.value = false }
+}
+function openProductFromGroup(id) {
+  selected.value = products.value.find(product => product.id === id) ?? groupDetailProducts.value.find(product => product.id === id) ?? null
+  if (selected.value) {
+    productReturnLocationId.value = null
+    productReturnGroupId.value = groupDetail.value?.id ?? null
+    view.value = 'detail'
+  }
+}
 watch(feedback, message => {
   window.clearTimeout(feedbackTimer)
   if (message) feedbackTimer = window.setTimeout(() => { feedback.value = '' }, 3000)
@@ -336,6 +512,8 @@ function onKeyDown(event) {
   if (event.key === 'Escape') {
     showImagePreview.value = false
     if (showLocationDelete.value && !locationDeleting.value) showLocationDelete.value = false
+    if (showGroupDelete.value && !groupDeleting.value) showGroupDelete.value = false
+    if (groupPickerOpen.value && !groupPickerBusy.value) groupPickerOpen.value = false
     if (locationPickerOpen.value) closeLocationPicker()
     if (linkedLocationDetail.value) closeLinkedLocationDetail()
   }
@@ -362,6 +540,7 @@ function scrollToTop() {
 }
 function openProduct(id) {
   productReturnLocationId.value = null
+  productReturnGroupId.value = null
   selected.value = products.value.find(p => p.id === id) ?? null
   view.value = selected.value ? 'detail' : 'library'
   scrollToTop()
@@ -370,11 +549,19 @@ function openProductFromLocation(id) {
   const product = products.value.find(item => item.id === id) ?? locationDetailProducts.value.find(item => item.id === id)
   if (!product || !locationDetail.value) return
   productReturnLocationId.value = locationDetail.value.id
+  productReturnGroupId.value = null
   selected.value = product
   view.value = 'detail'
   scrollToTop()
 }
 function returnFromProductDetail() {
+  if (productReturnGroupId.value && groupDetail.value?.id === productReturnGroupId.value) {
+    selected.value = null
+    productReturnGroupId.value = null
+    view.value = 'group-detail'
+    refreshGroupDetailProducts()
+    return
+  }
   if (productReturnLocationId.value && locationDetail.value?.id === productReturnLocationId.value) {
     selected.value = null
     productReturnLocationId.value = null
@@ -448,21 +635,33 @@ async function confirmDelete() {
       productReturnLocationId.value = null
       view.value = 'location-detail'
       await refreshLocationDetailProducts()
+    } else if (productReturnGroupId.value && groupDetail.value?.id === productReturnGroupId.value) {
+      productReturnGroupId.value = null
+      view.value = 'group-detail'
+      await refreshGroupDetailProducts()
     } else view.value = 'library'
+    await refreshGroups()
     feedback.value = '商品已刪除。'
   } catch { error.value = '刪除失敗，請再試一次。'; showDelete.value = false }
   finally { deleting.value = false }
 }
 function navigate(target) {
-  if (saving.value || deleting.value || locationSaving.value || locationDeleting.value || unlinkingLocation.value || purchaseSaving.value) return
+  if (saving.value || deleting.value || locationSaving.value || locationDeleting.value || unlinkingLocation.value || purchaseSaving.value || groupSaving.value || groupDeleting.value) return
   creatingProductForLocation.value = false
   locationProductReturnContext = null
   closeLocationPicker()
   closeLinkedLocationDetail()
   locationDetailRequest += 1
   productReturnLocationId.value = null
+  productReturnGroupId.value = null
   locationDetail.value = null
   locationDetailProducts.value = []
+  groupDetailRequest += 1
+  groupFormRequest += 1
+  groupDetail.value = null
+  groupDetailProducts.value = []
+  groupPickerOpen.value = false
+  selectedGroup.value = null
   view.value = target
   selected.value = null
   feedback.value = ''
@@ -471,6 +670,7 @@ function navigate(target) {
   locationError.value = ''
   showLocationDelete.value = false
   if (target === 'locations') refreshLocations()
+  if (target === 'groups') refreshGroups()
   scrollToTop()
 }
 function setBackupFeedback(message) {
@@ -537,13 +737,14 @@ async function handleConfirmRestore() {
     const result = await restoreBackup(pendingRestoreBytes.value, { mode: 'replace' })
     await refresh()
     await refreshLocations()
+    await refreshGroups()
     restoreConfirmOpen.value = false
     pendingRestoreBytes.value = null
     restoreWarnings.value = []
     restoreCounts.value = null
     const counts = result.restored
     const warning = result.warnings?.length ? `（${result.warnings.length} 個警告）` : ''
-    setBackupFeedback(`還原完成：商品 ${counts.products} 件、地點 ${counts.locations} 個、關聯 ${counts.locationProducts} 筆、圖片 ${counts.images} 張。${warning}`)
+    setBackupFeedback(`還原完成：商品 ${counts.products} 件、地點 ${counts.locations} 個、群組 ${counts.groups} 個、圖片 ${counts.images} 張。${warning}`)
   } catch (cause) {
     backupError.value = cause.message || '還原失敗，請重試。'
   } finally {
@@ -560,31 +761,35 @@ function closeRestoreConfirm() {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'collection-shell': view === 'library' || view === 'locations' }">
+  <div class="app-shell" :class="{ 'collection-shell': ['library', 'locations', 'groups'].includes(view) }">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="navigate('library')"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span><span>GullStuff<small>把喜歡的，好好收著。</small></span></a>
       <div class="nav-label">WORKSPACE</div>
       <nav aria-label="主要導覽">
         <button class="nav-item" :class="{ active: ['library','detail','form'].includes(view) }" @click="navigate('library')"><span aria-hidden="true">▦</span> 商品收藏 <span class="nav-count">{{ products.length }}</span></button>
         <button class="nav-item" :class="{ active: ['locations', 'location-detail', 'location-form'].includes(view) }" @click="navigate('locations')"><span aria-hidden="true">⌖</span> 地點列表</button>
-        <button class="nav-item" :class="{ active: view === 'overview' }" @click="navigate('overview')"><span aria-hidden="true">◫</span> 總覽 <span class="soon-dot"></span></button>
+        <button class="nav-item" :class="{ active: ['groups', 'group-detail', 'group-form'].includes(view) }" @click="navigate('groups')"><span aria-hidden="true">◫</span> 群組</button>
       </nav>
       <div class="sidebar-bottom"><div class="privacy-note"><span aria-hidden="true">✳</span><strong>你的收藏，只屬於你。</strong><p>資料與照片保存在這台裝置，不需註冊帳號。</p></div><button class="nav-item settings-item" :class="{ active: view === 'settings' }" @click="navigate('settings')"><span aria-hidden="true">⚙</span> 設定</button></div>
     </aside>
 
     <main ref="mainContent" class="main-content">
-      <div class="mobile-bar" :class="{ 'is-collection': view === 'library' || view === 'locations', 'is-detail': view === 'detail' || view === 'location-detail' }">
+      <div class="mobile-bar" :class="{ 'is-collection': ['library', 'locations', 'groups'].includes(view), 'is-detail': ['detail', 'location-detail', 'group-detail'].includes(view) }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
         <button v-else-if="view === 'location-form'" class="mobile-back" type="button" aria-label="返回" @click="closeLocationForm">‹</button>
+        <button v-else-if="view === 'group-form'" class="mobile-back" type="button" aria-label="返回" @click="closeGroupForm">‹</button>
+        <button v-else-if="view === 'group-detail'" class="mobile-back" type="button" aria-label="返回群組列表" @click="navigate('groups')">‹</button>
         <button v-else-if="view === 'location-detail'" class="mobile-back" type="button" aria-label="返回地點列表" @click="navigate('locations')">‹</button>
-        <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
-        <button v-else-if="view !== 'library' && view !== 'locations'" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
-        <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="view !== 'detail' && view !== 'location-detail'">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : { library: '商品', locations: '地點列表', overview: '總覽', settings: '設定' }[view] }}</span></span>
-        <span v-if="view === 'library' || view === 'locations'" class="mobile-bar-spacer"></span>
+        <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnGroupId ? '返回群組詳情' : productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
+        <button v-else-if="!['library', 'locations', 'groups'].includes(view)" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
+        <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="!['detail', 'location-detail', 'group-detail'].includes(view)">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : view === 'group-form' ? selectedGroup ? '編輯群組' : '新增群組' : { library: '商品', locations: '地點列表', groups: '群組', settings: '設定' }[view] }}</span></span>
+        <span v-if="['library', 'locations', 'groups'].includes(view)" class="mobile-bar-spacer"></span>
         <button v-else-if="view === 'form'" class="mobile-save" type="submit" form="product-form" :disabled="saving">{{ saving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'location-form'" class="mobile-save" type="submit" form="location-form" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中' : '儲存' }}</button>
+        <button v-else-if="view === 'group-form'" class="mobile-save" type="submit" form="group-form" :disabled="groupSaving || loading || groupFormLinksLoading || groupFormLinksFailed || Boolean(error)">{{ groupSaving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'detail'" class="mobile-edit" type="button" @click="startEdit" aria-label="編輯商品">✎</button>
         <button v-else-if="view === 'location-detail'" class="mobile-edit" type="button" @click="openLocationForm(locationDetail)" aria-label="編輯地點">✎</button>
+        <button v-else-if="view === 'group-detail'" class="mobile-edit" type="button" @click="openGroupForm(groupDetail)" aria-label="編輯群組">✎</button>
         <span v-else class="mobile-bar-spacer"></span>
       </div>
       <div v-if="feedback" class="toast" role="status">{{ feedback }} <button @click="feedback = ''" aria-label="關閉訊息">×</button></div>
@@ -624,14 +829,39 @@ function closeRestoreConfirm() {
         </section>
       </template>
 
+      <template v-else-if="view === 'groups'">
+        <header class="page-heading locations-heading group-heading"><div><p class="eyebrow">YOUR COLLECTIONS</p><h1>群組<span class="heading-spark">✦</span></h1><p class="subtext">像播放清單一樣，依自己的方式整理商品。</p></div><button class="primary-button" type="button" @click="openGroupForm()">＋ 新增群組</button></header>
+        <section class="library-panel locations-panel">
+          <div class="section-top"><div><h2>所有群組 <span>{{ groups.length }}</span></h2><p>同一件商品可以收進多個群組</p></div></div>
+          <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋群組</span><input v-model="groupQuery" type="search" placeholder="搜尋群組名稱或說明…" /></label></div>
+          <div class="collection-results" aria-label="群組列表">
+            <div v-if="!groupsLoading && groups.length" class="collection-caption"><span>{{ groupQuery ? `找到 ${visibleGroups.length} 個群組` : `已建立 ${groups.length} 個群組` }}</span><i aria-hidden="true"></i></div>
+            <div v-if="groupsLoading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入群組…</h3></div>
+            <div v-else-if="groupsError" class="state-box" role="alert"><h3>無法顯示群組</h3><button class="secondary-button" type="button" @click="refreshGroups">重試</button></div>
+            <div v-else-if="!groups.length" class="state-box locations-empty"><span class="location-empty-icon group-empty-icon" aria-hidden="true"><GroupIcon /></span><h2>建立第一個群組</h2><p>點右上角「新增群組」，把喜歡的商品整理成自己的清單。</p></div>
+            <div v-else-if="!visibleGroups.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到群組</h3><button class="text-button" type="button" @click="groupQuery = ''">清除搜尋</button></div>
+            <div v-else class="locations-list"><button v-for="group in visibleGroups" :key="group.id" class="location-row group-row" type="button" :aria-label="`查看 ${group.name}，${group.productCount} 件商品`" @click="openGroupDetail(group)"><span class="location-pin group-icon" :style="groupAppearance(group)" aria-hidden="true"><GroupIcon :icon="group.icon" /></span><span class="location-row-main"><strong>{{ group.name }}</strong><small v-if="group.notes">{{ group.notes }}</small><small class="location-product-count">{{ group.productCount }} 件商品</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="view === 'group-detail' && groupDetail">
+        <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('groups')">← 返回群組</button><div class="heading-actions"><button class="secondary-button" type="button" @click="openGroupForm(groupDetail)">編輯群組</button></div></header>
+        <div class="group-detail-page"><section class="group-detail-summary panel"><span class="group-detail-mark" :style="groupAppearance(groupDetail)" aria-hidden="true"><GroupIcon :icon="groupDetail.icon" /></span><div><p class="eyebrow">MY GROUP</p><h1>{{ groupDetail.name }}</h1><p v-if="groupDetail.notes" class="notes">{{ groupDetail.notes }}</p></div></section>
+          <section class="group-detail-items panel" aria-labelledby="group-products-title"><div class="group-detail-items-heading"><h2 id="group-products-title">商品 <span v-if="!groupDetailLoading && !groupDetailError">{{ groupDetailProducts.length }}</span></h2><button type="button" @click="openGroupForm(groupDetail)">管理商品</button></div>
+            <p v-if="groupDetailLoading" class="location-detail-message" role="status">正在載入商品…</p><p v-else-if="groupDetailError" class="location-detail-message" role="alert">無法讀取群組商品。<button class="text-button" type="button" @click="refreshGroupDetailProducts">重試</button></p><p v-else-if="!groupDetailProducts.length" class="location-detail-message">群組裡還沒有商品，點「管理商品」即可加入。</p>
+            <div v-else class="group-product-list"><GroupProductRow v-for="(product, index) in groupDetailProducts" :key="product.id" :product="product" :index="index" @open="openProductFromGroup" /></div>
+          </section></div>
+      </template>
+
       <template v-else-if="view === 'location-detail' && locationDetail">
         <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('locations')">← 返回地點列表</button><div class="heading-actions"><button class="secondary-button" type="button" @click="openLocationForm(locationDetail)">編輯地點</button></div></header>
         <LocationDetail :location="locationDetail" :products="locationDetailProducts" :loading="locationDetailLoading" :error="locationDetailError" @retry="refreshLocationDetailProducts" @select-product="openProductFromLocation" />
       </template>
 
       <template v-else-if="view === 'detail' && selected">
-        <header class="page-heading detail-heading"><button class="back-link" @click="returnFromProductDetail">← 返回{{ productReturnLocationId ? '地點詳情' : '商品收藏' }}</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
-        <div class="detail-grid"><button ref="imageTrigger" class="detail-photo" type="button" :disabled="!detailImage" :aria-label="detailImage ? `放大檢視 ${selected.name} 的照片` : '尚無商品照片'" @click="showImagePreview = true"><img v-if="detailImage" :src="detailImage" :alt="selected.name" /><span v-else aria-hidden="true">✦</span></button><div class="detail-info panel"><div class="detail-summary"><p class="eyebrow">SAVED ITEM</p><h2>{{ selected.name }}</h2><p class="detail-date">收藏於 {{ new Date(selected.createdAt).toLocaleDateString('zh-TW') }}</p></div><div class="detail-fields"><div v-if="selected.brand"><small>品牌</small><span>{{ selected.brand }}</span></div><div v-if="selected.category"><small>分類</small><span>{{ selected.category }}</span></div><div v-if="selected.model"><small>型號 / 規格</small><span>{{ selected.model }}</span></div><div v-if="selected.notes"><small>備註</small><p class="notes">{{ selected.notes }}</p></div></div><div v-if="![selected.brand, selected.category, selected.model, selected.notes].some(Boolean)" class="detail-empty">還沒有其他資料，隨時可以編輯補上。</div><button class="mobile-detail-delete" type="button" @click="showDelete = true">刪除商品</button></div></div>
+        <header class="page-heading detail-heading"><button class="back-link" @click="returnFromProductDetail">← 返回{{ productReturnGroupId ? '群組詳情' : productReturnLocationId ? '地點詳情' : '商品收藏' }}</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
+        <div class="detail-grid"><button ref="imageTrigger" class="detail-photo" type="button" :disabled="!detailImage" :aria-label="detailImage ? `放大檢視 ${selected.name} 的照片` : '尚無商品照片'" @click="showImagePreview = true"><img v-if="detailImage" :src="detailImage" :alt="selected.name" /><span v-else aria-hidden="true">✦</span></button><div class="detail-info panel"><div class="detail-summary"><p class="eyebrow">SAVED ITEM</p><h2>{{ selected.name }}</h2><p class="detail-date">收藏於 {{ new Date(selected.createdAt).toLocaleDateString('zh-TW') }}</p><div class="product-groups" :class="{ 'has-groups': productGroupIds.length }" role="group" aria-label="所屬群組"><div v-if="productGroupIds.length" class="group-tags"><span v-for="group in groups.filter(item => productGroupIds.includes(item.id))" :key="group.id" :style="groupAppearance(group)">{{ group.name }}</span></div><button class="group-add-button" type="button" :aria-label="productGroupIds.length ? '加入或管理群組' : '加入群組'" :title="productGroupIds.length ? '加入或管理群組' : '加入群組'" @click="openGroupPicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg><span v-if="!productGroupIds.length">加入群組</span></button></div></div><div class="detail-fields"><div v-if="selected.brand"><small>品牌</small><span>{{ selected.brand }}</span></div><div v-if="selected.category"><small>分類</small><span>{{ selected.category }}</span></div><div v-if="selected.model"><small>型號 / 規格</small><span>{{ selected.model }}</span></div><div v-if="selected.notes"><small>備註</small><p class="notes">{{ selected.notes }}</p></div></div><div v-if="![selected.brand, selected.category, selected.model, selected.notes].some(Boolean)" class="detail-empty">還沒有其他資料，隨時可以編輯補上。</div><button class="mobile-detail-delete" type="button" @click="showDelete = true">刪除商品</button></div></div>
         <section class="product-locations panel" aria-labelledby="product-locations-title">
           <div class="product-locations-heading"><div><p class="eyebrow">WHERE TO FIND IT</p><h3 id="product-locations-title">可購買地點 <span v-if="!linkedLocationsLoading && !linkedLocationsError">{{ linkedLocations.length }}</span></h3></div><button ref="locationPickerTrigger" class="product-location-add" type="button" @click="openLocationPicker">＋ 連結地點</button></div>
           <p v-if="linkedLocationsLoading" class="product-location-message" role="status">正在載入地點…</p>
@@ -672,19 +902,40 @@ function closeRestoreConfirm() {
         </form>
       </div>
 
+      <div v-else-if="view === 'group-form'" class="editor-shell group-editor">
+        <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeGroupForm">← 返回</button><p class="eyebrow">MY GROUPS / {{ selectedGroup ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedGroup ? '編輯群組' : '新增群組' }}</h1><p class="subtext">幫清單取個名字，再挑選要放進去的商品。</p></div></div>
+        <form id="group-form" class="editor-grid" @submit.prevent="handleGroupSave">
+          <div class="form-main panel"><div class="section-title"><span class="step">01</span><div><h2>群組資訊</h2><p>只有名稱是必填。</p></div></div><label class="field"><span>群組名稱 <em>必填</em></span><input ref="groupNameInput" v-model="groupDraft.name" maxlength="150" required placeholder="例如：東京購物清單" /></label><fieldset class="group-choice"><legend>圖示</legend><div class="group-icon-options"><label v-for="option in GROUP_ICONS" :key="option.id"><input v-model="groupDraft.icon" type="radio" name="group-icon" :value="option.id" :aria-label="option.label" /><span><GroupIcon :icon="option.id" /></span></label></div></fieldset><fieldset class="group-choice"><legend>顏色</legend><div class="group-color-options"><label v-for="option in GROUP_COLORS" :key="option.id" :title="option.label"><input v-model="groupDraft.color" type="radio" name="group-color" :value="option.id" /><span :style="groupAppearance({ color: option.id })"><i aria-hidden="true"></i><small>{{ option.label }}</small></span></label></div></fieldset><label class="field">說明<textarea v-model="groupDraft.notes" maxlength="1000" rows="4" placeholder="這個群組想收藏什麼？"></textarea></label></div>
+          <div class="form-side">
+            <section class="location-product-picker panel" aria-labelledby="group-form-products-title">
+              <div class="section-title"><span class="step">02</span><div><h2 id="group-form-products-title">選擇商品</h2><p>同一件商品也能加入其他群組。</p></div></div>
+              <div class="location-products-heading"><span>已選 {{ selectedGroupProductIds.length }} 件</span></div>
+              <label v-if="products.length" class="location-product-search"><span class="sr-only">搜尋商品</span><input v-model="groupProductQuery" type="search" placeholder="搜尋商品名稱、品牌或分類…" /></label>
+              <p v-if="loading || groupFormLinksLoading" class="product-picker-message" role="status">正在載入商品…</p>
+              <p v-else-if="error" class="product-picker-message" role="alert">無法讀取商品，請稍後重試。</p>
+              <p v-else-if="!products.length" class="product-picker-message">目前沒有商品，群組建立後仍可再加入。</p>
+              <p v-else-if="!groupProductChoices.length" class="product-picker-message">找不到符合的商品。</p>
+              <div v-else class="product-picker-list"><ProductPickerOption v-for="product in groupProductChoices" :key="product.id" :product="product" :checked="selectedGroupProductIds.includes(product.id)" @toggle="toggleGroupProduct" /></div>
+              <div v-if="selectedGroupProductIds.length > 1" class="group-order"><h3>清單順序</h3><div v-for="(productId, index) in selectedGroupProductIds" :key="productId" class="group-order-row"><span>{{ index + 1 }}. {{ groupProductName(productId) }}</span><button type="button" :disabled="index === 0" :aria-label="`將商品上移：${groupProductName(productId)}`" @click="moveGroupProduct(productId, -1)">↑</button><button type="button" :disabled="index === selectedGroupProductIds.length - 1" :aria-label="`將商品下移：${groupProductName(productId)}`" @click="moveGroupProduct(productId, 1)">↓</button></div></div>
+            </section>
+            <div class="form-actions"><p v-if="groupFormError" class="form-error" role="alert">{{ groupFormError }}</p><button class="primary-button full" type="submit" :disabled="groupSaving || loading || groupFormLinksLoading || groupFormLinksFailed || Boolean(error)">{{ groupSaving ? '儲存中…' : '儲存' }} <span aria-hidden="true">↗</span></button><button class="text-button full" type="button" @click="closeGroupForm">取消</button><button v-if="selectedGroup" class="location-delete-link full" type="button" @click="showGroupDelete = true">刪除群組</button></div>
+          </div>
+        </form>
+      </div>
+
       <template v-else-if="view === 'settings'">
         <header class="page-heading settings-heading"><div><p class="eyebrow">DATA MANAGEMENT</p><h1>設定<span class="heading-spark">✦</span></h1><p class="subtext">管理你的收藏資料。</p></div></header>
         <section class="settings-panel panel">
           <div class="settings-section">
             <h2>備份與還原</h2>
-            <p class="settings-intro">備份包含所有商品、地點、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料（毀滅性操作）。</p>
+            <p class="settings-intro">備份包含所有商品、地點、群組、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料。</p>
             <div class="settings-actions">
               <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
               <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
             </div>
             <div class="settings-table-export">
               <h3>表格匯出</h3>
-              <p class="settings-intro">將商品、地點及購買價格整理成 Excel 工作表，方便檢視與編輯。表格不含照片，也無法用於備份還原。</p>
+              <p class="settings-intro">將商品、地點、群組、關聯及購買價格整理成 Excel 工作表。表格不含照片，也無法用於備份還原。</p>
               <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleExportSpreadsheet">{{ backupBusy ? '處理中…' : '匯出 Excel 表格' }}</button>
             </div>
             <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>
@@ -693,14 +944,16 @@ function closeRestoreConfirm() {
         </section>
       </template>
 
-      <div v-else class="coming-soon"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><span class="coming-icon">✦</span><p class="eyebrow">COMING SOON</p><h1>{{ { locations: '地點清單', overview: '收藏總覽', settings: '設定' }[view] }}</h1><p>這個功能正在規劃中。現在先把想買的商品收藏起來吧。</p><button class="primary-button" @click="navigate('library')">查看商品收藏</button></div>
+      <div v-else class="coming-soon"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><span class="coming-icon">✦</span><p class="eyebrow">COMING SOON</p><h1>頁面暫時無法顯示</h1><button class="primary-button" @click="navigate('library')">查看商品收藏</button></div>
     </main>
-    <nav class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: ['library', 'detail', 'form'].includes(view) && !creatingProductForLocation }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: ['locations', 'location-detail', 'location-form'].includes(view) || creatingProductForLocation }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
+    <nav class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: ['library', 'detail', 'form'].includes(view) && !creatingProductForLocation }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2.5 9 4.8v9.4l-9 4.8-9-4.8V7.3l9-4.8Z" /><path d="m3 7.3 9 4.8 9-4.8M12 12.1v9.4" /></svg></span><span class="nav-text">商品</span></button><button :class="{ active: ['locations', 'location-detail', 'location-form'].includes(view) || creatingProductForLocation }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: ['groups', 'group-detail', 'group-form'].includes(view) }" @click="navigate('groups')"><span class="nav-icon" aria-hidden="true"><GroupIcon /></span><span class="nav-text">群組</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
     <div v-if="showDelete" class="dialog-backdrop" @click.self="showDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-desc"><span class="dialog-icon">!</span><h2 id="delete-title">刪除這件商品？</h2><p id="delete-desc">「{{ selected?.name }}」與它的照片會從這台裝置永久刪除，無法復原。</p><div class="dialog-actions"><button class="secondary-button" :disabled="deleting" @click="showDelete = false">取消</button><button class="danger-fill" :disabled="deleting" @click="confirmDelete">{{ deleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <LocationLinkPicker v-if="locationPickerOpen" :locations="locationPickerLocations" :linked-ids="locationPickerLinkedIds" :loading="locationPickerLoading" :error="locationPickerError" :busy-id="linkingLocationId" @close="closeLocationPicker" @retry="loadLocationPicker" @select="selectLocationForProduct" @create="createLocationFromPicker" />
     <LinkedLocationDetail v-if="linkedLocationDetail" :location="linkedLocationDetail" :busy="unlinkingLocation" :error="unlinkLocationError" :purchase-saving="purchaseSaving" :purchase-error="purchaseError" :purchase-saved-key="purchaseSavedKey" @close="closeLinkedLocationDetail" @unlink="unlinkLinkedLocation" @edit="editLinkedLocation" @save-purchase="saveLinkedLocationPurchase" @clear-purchase-error="purchaseError = ''" />
+    <div v-if="groupPickerOpen" class="dialog-backdrop" @click.self="!groupPickerBusy && (groupPickerOpen = false)"><section class="dialog group-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="group-picker-title"><div class="group-picker-heading"><div><h2 id="group-picker-title">加入群組</h2><p>一件商品可以同時收進多個群組。</p></div><button type="button" aria-label="關閉群組選擇" :disabled="groupPickerBusy" @click="groupPickerOpen = false">×</button></div><p v-if="groupPickerError" class="form-error" role="alert">{{ groupPickerError }}</p><p v-if="groupsLoading" class="product-picker-message" role="status">正在載入群組…</p><p v-else-if="groupsError" class="product-picker-message" role="alert">{{ groupsError }} <button class="text-button" type="button" @click="refreshGroups">重試</button></p><div v-else-if="groups.length" class="group-picker-list"><label v-for="group in groups" :key="group.id" class="group-picker-option"><input type="checkbox" :checked="productGroupIds.includes(group.id)" :disabled="groupPickerBusy" @change="toggleProductGroup(group.id)" /><span><strong>{{ group.name }}</strong><small>{{ group.productCount }} 件商品</small></span></label></div><p v-else class="product-picker-message">目前沒有群組，先建立第一個吧。</p><button class="location-create-product" type="button" :disabled="groupPickerBusy" @click="openGroupForm(null, selected?.id)">＋ 新增群組並加入</button></section></div>
+    <div v-if="showGroupDelete" class="dialog-backdrop" @click.self="!groupDeleting && (showGroupDelete = false)"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="group-delete-title"><span class="dialog-icon">!</span><h2 id="group-delete-title">刪除這個群組？</h2><p>「{{ selectedGroup?.name }}」與群組中的商品關聯會刪除，商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="groupDeleting" @click="showGroupDelete = false">取消</button><button class="danger-fill" type="button" :disabled="groupDeleting" @click="confirmGroupDelete">{{ groupDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showLocationDelete" class="dialog-backdrop" @click.self="showLocationDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="location-delete-title" aria-describedby="location-delete-desc"><span class="dialog-icon">!</span><h2 id="location-delete-title">刪除這個地點？</h2><p id="location-delete-desc">「{{ selectedLocation?.name }}」及其商品關聯會從這台裝置永久刪除，無法復原。商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="locationDeleting" @click="showLocationDelete = false">取消</button><button class="danger-fill" type="button" :disabled="locationDeleting" @click="confirmLocationDelete">{{ locationDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showImagePreview && detailImage" class="image-preview" role="dialog" aria-modal="true" :aria-label="`${selected?.name} 的照片`" @click.self="showImagePreview = false"><button ref="imageCloseButton" class="image-preview-close" type="button" aria-label="關閉照片" @click="showImagePreview = false">×</button><img :src="detailImage" :alt="selected?.name" /></div>
-    <div v-if="restoreConfirmOpen" class="dialog-backdrop" @click.self="closeRestoreConfirm"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-desc"><span class="dialog-icon">!</span><h2 id="restore-title">確認還原備份？</h2><p id="restore-desc">這會取代這台裝置目前的所有資料（毀滅性操作）。<br />商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、關聯 {{ restoreCounts?.locationProducts ?? 0 }} 筆、圖片 {{ restoreCounts?.images ?? 0 }} 張。</p><div v-if="restoreWarnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in restoreWarnings" :key="index">{{ warning }}</li></ul></div><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeRestoreConfirm">取消</button><button class="danger-fill" type="button" :disabled="backupBusy" @click="handleConfirmRestore">{{ backupBusy ? '還原中…' : '確認還原' }}</button></div></div></div>
+    <div v-if="restoreConfirmOpen" class="dialog-backdrop" @click.self="closeRestoreConfirm"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-desc"><span class="dialog-icon">!</span><h2 id="restore-title">確認還原備份？</h2><p id="restore-desc">這會取代這台裝置目前的所有資料。<br />商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、群組 {{ restoreCounts?.groups ?? 0 }} 個、關聯 {{ (restoreCounts?.locationProducts ?? 0) + (restoreCounts?.groupProducts ?? 0) }} 筆、圖片 {{ restoreCounts?.images ?? 0 }} 張。</p><div v-if="restoreWarnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in restoreWarnings" :key="index">{{ warning }}</li></ul></div><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeRestoreConfirm">取消</button><button class="danger-fill" type="button" :disabled="backupBusy" @click="handleConfirmRestore">{{ backupBusy ? '還原中…' : '確認還原' }}</button></div></div></div>
   </div>
 </template>
