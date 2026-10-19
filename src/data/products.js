@@ -62,10 +62,11 @@ export async function saveProduct(input, imageChange, id) {
 }
 
 export async function deleteProduct(id) {
-  return db.transaction('rw', db.products, db.images, db.locationProducts, async () => {
+  return db.transaction('rw', db.products, db.images, db.locationProducts, db.groupProducts, async () => {
     const existing = await db.products.get(id)
     if (!existing) return false
     await db.locationProducts.where('productId').equals(id).delete()
+    await db.groupProducts.where('productId').equals(id).delete()
     if (existing.imageReference) await db.images.delete(existing.imageReference)
     await db.products.delete(id)
     return true

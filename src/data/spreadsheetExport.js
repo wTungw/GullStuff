@@ -56,6 +56,22 @@ const sheetDefinitions = [
       const locationNames = new Map(locations.map(location => [location.id, location.name]))
       return locationProducts.map(link => [productNames.get(link.productId) ?? '', locationNames.get(link.locationId) ?? '', link.price ?? '', link.currency, link.notes, link.productId, link.locationId, link.id, link.createdAt, link.updatedAt])
     }
+  },
+  {
+    name: '群組',
+    headers: ['群組名稱', '圖示', '顏色', '說明', '群組 ID', '建立時間', '更新時間'],
+    widths: [28, 16, 16, 42, 38, 24, 24],
+    rows: ({ groups = [] }) => groups.map(group => [group.name, group.icon ?? 'folder', group.color ?? 'forest', group.notes, group.id, group.createdAt, group.updatedAt])
+  },
+  {
+    name: '群組與商品',
+    headers: ['群組名稱', '商品名稱', '順序', '群組 ID', '商品 ID', '關聯 ID', '加入時間'],
+    widths: [28, 28, 12, 38, 38, 38, 24],
+    rows: ({ products, groups = [], groupProducts = [] }) => {
+      const productNames = new Map(products.map(product => [product.id, product.name]))
+      const groupNames = new Map(groups.map(group => [group.id, group.name]))
+      return groupProducts.map(link => [groupNames.get(link.groupId) ?? '', productNames.get(link.productId) ?? '', link.position + 1, link.groupId, link.productId, link.id, link.createdAt])
+    }
   }
 ]
 
@@ -74,12 +90,12 @@ export function buildSpreadsheet(dataset) {
 }
 
 export async function exportSpreadsheet() {
-  const [products, locations, locationProducts] = await db.transaction('r', db.products, db.locations, db.locationProducts, () => Promise.all([
-    db.products.toArray(), db.locations.toArray(), db.locationProducts.toArray()
+  const [products, locations, locationProducts, groups, groupProducts] = await db.transaction('r', db.products, db.locations, db.locationProducts, db.groups, db.groupProducts, () => Promise.all([
+    db.products.toArray(), db.locations.toArray(), db.locationProducts.toArray(), db.groups.toArray(), db.groupProducts.toArray()
   ]))
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   return {
-    bytes: buildSpreadsheet({ products, locations, locationProducts }),
+    bytes: buildSpreadsheet({ products, locations, locationProducts, groups, groupProducts }),
     filename: `gullstuff-${stamp}.xlsx`,
     mime: MIME
   }

@@ -4,11 +4,12 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from './db.js'
 import { saveProduct } from './products.js'
 import { saveLocation, saveLocationPurchase } from './locations.js'
+import { saveGroup } from './groups.js'
 import { exportBackup, restoreBackup, validateBackup } from './backup.js'
 
 beforeEach(async () => {
   await db.open()
-  await Promise.all([db.products.clear(), db.images.clear(), db.locations.clear(), db.locationProducts.clear()])
+  await Promise.all([db.products.clear(), db.images.clear(), db.locations.clear(), db.locationProducts.clear(), db.groups.clear(), db.groupProducts.clear()])
 })
 afterAll(async () => { await db.delete() })
 
@@ -45,15 +46,17 @@ function relationRecord(overrides = {}) {
 function makeManifest(overrides = {}) {
   return {
     format: 'gullstuff-backup',
-    schemaVersion: 1,
+    schemaVersion: 2,
     appVersion: '0.1.0',
-    dbSchemaVersion: 2,
+    dbSchemaVersion: 3,
     createdAt: ISO,
     platform: 'web',
-    counts: { products: 0, images: 0, locations: 0, locationProducts: 0 },
+    counts: { products: 0, images: 0, locations: 0, locationProducts: 0, groups: 0, groupProducts: 0 },
     products: [],
     locations: [],
     locationProducts: [],
+    groups: [],
+    groupProducts: [],
     images: [],
     ...overrides
   }
@@ -83,10 +86,39 @@ const snapshot = async () => ({
   products: await db.products.toArray(),
   locations: await db.locations.toArray(),
   locationProducts: await db.locationProducts.toArray(),
+  groups: await db.groups.toArray(),
+  groupProducts: await db.groupProducts.toArray(),
   images: await db.images.toArray()
 })
 
 describe('backup export, validation and restore', () => {
+  it('round-trips groups and shared product memberships', async () => {
+    const product = await saveProduct({ name: '同時收藏的商品' })
+    const first = await saveGroup({ name: '旅行清單' }, undefined, [product.id])
+    const second = await saveGroup({ name: '禮物清單' }, undefined, [product.id])
+    const { bytes, manifest } = await exportBackup()
+    expect(manifest.counts.groups).toBe(2)
+    expect(manifest.counts.groupProducts).toBe(2)
+    expect(validateBackup(bytes).ok).toBe(true)
+
+    await db.groups.clear()
+    await db.groupProducts.clear()
+    await restoreBackup(bytes)
+    expect((await db.groupProducts.where('productId').equals(product.id).toArray()).map(link => link.groupId).sort()).toEqual([first.id, second.id].sort())
+  })
+
+  it('accepts legacy backups without groups and rejects orphan group memberships', async () => {
+    const legacy = pack(makeManifest({ schemaVersion: 1, dbSchemaVersion: 2, groups: undefined, groupProducts: undefined }))
+    expect(validateBackup(legacy).ok).toBe(true)
+    const invalid = pack(makeManifest({
+      groups: [{ id: 'g1', name: '群組', notes: '', createdAt: ISO, updatedAt: ISO }],
+      groupProducts: [{ id: 'gp1', groupId: 'g1', productId: 'missing', position: 0, createdAt: ISO }]
+    }))
+    const result = validateBackup(invalid)
+    expect(result.ok).toBe(false)
+    expect(hasError(result, '群組關聯指向不存在')).toBe(true)
+  })
+
   it('round-trips products, images, locations and purchase-linked relations', async () => {
     const product = await saveProduct(
       { name: '旅行杯', brand: '品牌 A', category: '生活用品', model: '藍色', notes: '朋友推薦' },
@@ -103,9 +135,9 @@ describe('backup export, validation and restore', () => {
     const { bytes, filename, manifest } = await exportBackup()
 
     expect(manifest.format).toBe('gullstuff-backup')
-    expect(manifest.schemaVersion).toBe(1)
-    expect(manifest.dbSchemaVersion).toBe(2)
-    expect(manifest.counts).toEqual({ products: 1, images: 1, locations: 1, locationProducts: 1 })
+    expect(manifest.schemaVersion).toBe(2)
+    expect(manifest.dbSchemaVersion).toBe(3)
+    expect(manifest.counts).toEqual({ products: 1, images: 1, locations: 1, locationProducts: 1, groups: 0, groupProducts: 0 })
     expect(filename).toMatch(/^gullstuff-backup-\d{8}-\d{6}\.gullstuff$/)
     expect(validateBackup(bytes).ok).toBe(true)
 
@@ -114,7 +146,7 @@ describe('backup export, validation and restore', () => {
     await saveLocation({ name: '備份後新增地點' })
 
     const result = await restoreBackup(bytes)
-    expect(result.restored).toEqual({ products: 1, images: 1, locations: 1, locationProducts: 1 })
+    expect(result.restored).toEqual({ products: 1, images: 1, locations: 1, locationProducts: 1, groups: 0, groupProducts: 0 })
     expect(result.warnings).toEqual([])
 
     const after = await snapshot()
@@ -284,7 +316,7 @@ describe('backup export, validation and restore', () => {
 
   it('exports and restores an empty dataset, replacing existing data', async () => {
     const { bytes, manifest } = await exportBackup()
-    expect(manifest.counts).toEqual({ products: 0, images: 0, locations: 0, locationProducts: 0 })
+    expect(manifest.counts).toEqual({ products: 0, images: 0, locations: 0, locationProducts: 0, groups: 0, groupProducts: 0 })
     expect(validateBackup(bytes).ok).toBe(true)
 
     await saveProduct({ name: '稍後新增' })
@@ -292,7 +324,7 @@ describe('backup export, validation and restore', () => {
     await db.images.put({ id: 'later-image', blob: webpBlob() })
 
     const result = await restoreBackup(bytes)
-    expect(result.restored).toEqual({ products: 0, images: 0, locations: 0, locationProducts: 0 })
+    expect(result.restored).toEqual({ products: 0, images: 0, locations: 0, locationProducts: 0, groups: 0, groupProducts: 0 })
     expect(await db.products.count()).toBe(0)
     expect(await db.images.count()).toBe(0)
     expect(await db.locations.count()).toBe(0)

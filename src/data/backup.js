@@ -2,6 +2,7 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { db } from './db.js'
 import { normalizeProductInput } from './products.js'
 import { normalizeLocationInput, normalizePurchaseInput } from './locations.js'
+import { normalizeGroupInput } from './groups.js'
 import { identityPart, locationIdentity } from './identity.js'
 
 // Pure backup core: archive build/parse, validation and atomic restore.
@@ -9,11 +10,11 @@ import { identityPart, locationIdentity } from './identity.js'
 // reused from web and native layers.
 
 export const BACKUP_FORMAT = 'gullstuff-backup'
-export const BACKUP_SCHEMA_VERSION = 1
+export const BACKUP_SCHEMA_VERSION = 2
 export const MAX_BACKUP_BYTES = 500 * 1024 * 1024
 
-// Kept in sync with db.js (Dexie version 2) and package.json version.
-const DB_SCHEMA_VERSION = 2
+// Kept in sync with db.js and package.json version.
+const DB_SCHEMA_VERSION = 3
 const APP_VERSION = '0.1.0'
 const DEFAULT_IMAGE_TYPE = 'image/webp'
 const MANIFEST_ENTRY = 'manifest.json'
@@ -58,10 +59,12 @@ function buildArchive(manifest, imageFiles) {
 // Accepts an optional platform hint (defaults to 'web') so callers may record
 // the originating environment; the core itself never inspects the platform.
 export async function exportBackup({ platform = 'web' } = {}) {
-  const [products, locations, locationProducts, imageRecords] = await Promise.all([
+  const [products, locations, locationProducts, groups, groupProducts, imageRecords] = await Promise.all([
     db.products.toArray(),
     db.locations.toArray(),
     db.locationProducts.toArray(),
+    db.groups.toArray(),
+    db.groupProducts.toArray(),
     db.images.toArray()
   ])
 
@@ -87,11 +90,15 @@ export async function exportBackup({ platform = 'web' } = {}) {
       products: products.length,
       images: imageEntries.length,
       locations: locations.length,
-      locationProducts: locationProducts.length
+      locationProducts: locationProducts.length,
+      groups: groups.length,
+      groupProducts: groupProducts.length
     },
     products,
     locations,
     locationProducts,
+    groups,
+    groupProducts,
     images: imageEntries
   }
 
@@ -109,7 +116,7 @@ export async function exportBackup({ platform = 'web' } = {}) {
 export function validateBackup(bytes) {
   const errors = []
   const warnings = []
-  const dataset = { products: [], locations: [], locationProducts: [], images: [] }
+  const dataset = { products: [], locations: [], locationProducts: [], groups: [], groupProducts: [], images: [] }
   const fail = () => ({ ok: false, errors, warnings, dataset, manifest: null })
 
   // --- Phase 1: container integrity -----------------------------------------
@@ -150,7 +157,7 @@ export function validateBackup(bytes) {
 
   // --- Phase 2: envelope ----------------------------------------------------
   if (manifest.format !== BACKUP_FORMAT) errors.push('此檔案不是 GullStuff 備份。')
-  if (!Number.isInteger(manifest.schemaVersion)) {
+  if (!Number.isInteger(manifest.schemaVersion) || manifest.schemaVersion < 1) {
     errors.push('備份格式版本無效。')
   } else if (manifest.schemaVersion > BACKUP_SCHEMA_VERSION) {
     errors.push('此備份由較新版本建立，請更新 App。')
@@ -223,6 +230,29 @@ export function validateBackup(bytes) {
     }
   }
 
+  const rawGroups = manifest.schemaVersion >= 2 ? (Array.isArray(manifest.groups) ? manifest.groups : null) : []
+  if (!rawGroups) errors.push('備份缺少群組清單。')
+  const groups = []
+  for (const [index, record] of (rawGroups ?? []).entries()) {
+    if (!record || typeof record !== 'object' || Array.isArray(record) || typeof record.id !== 'string' || !record.id) {
+      errors.push(`第 ${index + 1} 筆群組格式錯誤。`)
+      continue
+    }
+    try { groups.push({ ...record, ...normalizeGroupInput(record) }) }
+    catch (error) { errors.push(`第 ${index + 1} 筆群組無效：${error.message}`) }
+  }
+
+  const rawGroupProducts = manifest.schemaVersion >= 2 ? (Array.isArray(manifest.groupProducts) ? manifest.groupProducts : null) : []
+  if (!rawGroupProducts) errors.push('備份缺少群組商品關聯清單。')
+  const groupProducts = []
+  for (const [index, record] of (rawGroupProducts ?? []).entries()) {
+    if (!record || typeof record !== 'object' || Array.isArray(record) || typeof record.id !== 'string' || !record.id || typeof record.groupId !== 'string' || !record.groupId || typeof record.productId !== 'string' || !record.productId || !Number.isInteger(record.position) || record.position < 0) {
+      errors.push(`第 ${index + 1} 筆群組商品關聯格式錯誤。`)
+      continue
+    }
+    groupProducts.push(record)
+  }
+
   const rawImages = Array.isArray(manifest.images) ? manifest.images : null
   if (!rawImages) errors.push('備份缺少圖片清單。')
   const declaredImages = []
@@ -251,6 +281,8 @@ export function validateBackup(bytes) {
   checkIds(products, '商品')
   checkIds(locations, '地點')
   checkIds(locationProducts, '關聯')
+  checkIds(groups, '群組')
+  checkIds(groupProducts, '群組商品關聯')
 
   // --- Phase 5: identity uniqueness -----------------------------------------
   const checkIdentity = (list, keyOf, label, describe) => {
@@ -263,6 +295,7 @@ export function validateBackup(bytes) {
   }
   checkIdentity(products, product => identityPart(product.name), '商品名稱', product => product.name)
   checkIdentity(locations, locationIdentity, '地點', location => location.name)
+  checkIdentity(groups, group => identityPart(group.name), '群組名稱', group => group.name)
 
   // --- Phase 6: relation uniqueness (id handled above, plus pair) ------------
   const seenPairs = new Set()
@@ -270,6 +303,12 @@ export function validateBackup(bytes) {
     const pair = `${relation.locationId}\u0000${relation.productId}`
     if (seenPairs.has(pair)) errors.push(`商品與地點的關聯重複：${relation.locationId}／${relation.productId}。`)
     seenPairs.add(pair)
+  }
+  const seenGroupPairs = new Set()
+  for (const relation of groupProducts) {
+    const pair = `${relation.groupId}\u0000${relation.productId}`
+    if (seenGroupPairs.has(pair)) errors.push(`群組商品關聯重複：${relation.groupId}／${relation.productId}。`)
+    seenGroupPairs.add(pair)
   }
 
   // --- Phase 7: referential integrity ---------------------------------------
@@ -279,6 +318,10 @@ export function validateBackup(bytes) {
     if (!productIds.has(relation.productId) || !locationIds.has(relation.locationId)) {
       errors.push(`關聯指向不存在的商品或地點：${relation.id}。`)
     }
+  }
+  const groupIds = new Set(groups.map(group => group.id))
+  for (const relation of groupProducts) {
+    if (!productIds.has(relation.productId) || !groupIds.has(relation.groupId)) errors.push(`群組關聯指向不存在的商品或群組：${relation.id}。`)
   }
 
   // Images declared but missing from the zip are warned about and treated as
@@ -313,6 +356,8 @@ export function validateBackup(bytes) {
   dataset.products = products
   dataset.locations = locations
   dataset.locationProducts = locationProducts
+  dataset.groups = groups
+  dataset.groupProducts = groupProducts
   dataset.images = [...availableImages.values()]
     .filter(image => referencedImageIds.has(image.id))
     .map(image => ({ id: image.id, blob: new Blob([image.bytes], { type: image.type }) }))
@@ -335,17 +380,21 @@ export async function restoreBackup(bytes, { mode = 'replace' } = {}) {
   // Blobs were already built during validation; map to rows before the tx.
   const imageRows = dataset.images.map(({ id, blob }) => ({ id, blob }))
 
-  await db.transaction('rw', db.products, db.images, db.locations, db.locationProducts, async () => {
+  await db.transaction('rw', db.products, db.images, db.locations, db.locationProducts, db.groups, db.groupProducts, async () => {
     await Promise.all([
       db.products.clear(),
       db.images.clear(),
       db.locations.clear(),
-      db.locationProducts.clear()
+      db.locationProducts.clear(),
+      db.groups.clear(),
+      db.groupProducts.clear()
     ])
     if (imageRows.length) await db.images.bulkPut(imageRows)
     if (dataset.products.length) await db.products.bulkPut(dataset.products)
     if (dataset.locations.length) await db.locations.bulkPut(dataset.locations)
     if (dataset.locationProducts.length) await db.locationProducts.bulkPut(dataset.locationProducts)
+    if (dataset.groups.length) await db.groups.bulkPut(dataset.groups)
+    if (dataset.groupProducts.length) await db.groupProducts.bulkPut(dataset.groupProducts)
   })
 
   return {
@@ -353,7 +402,9 @@ export async function restoreBackup(bytes, { mode = 'replace' } = {}) {
       products: dataset.products.length,
       images: imageRows.length,
       locations: dataset.locations.length,
-      locationProducts: dataset.locationProducts.length
+      locationProducts: dataset.locationProducts.length,
+      groups: dataset.groups.length,
+      groupProducts: dataset.groupProducts.length
     },
     warnings
   }

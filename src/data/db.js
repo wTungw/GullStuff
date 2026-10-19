@@ -18,3 +18,7 @@ db.version(2).stores({
   location.createdAt ??= location.updatedAt ?? now
   location.updatedAt ??= location.createdAt
 }))
+db.version(3).stores({
+  groups: 'id, name, updatedAt',
+  groupProducts: 'id, groupId, productId, &[groupId+productId]'
+})
