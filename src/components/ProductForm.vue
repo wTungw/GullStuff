@@ -56,7 +56,7 @@ function submit() {
 </script>
 
 <template>
-  <div class="editor-shell">
+  <div class="editor-shell product-editor">
     <div class="page-heading editor-heading">
       <div>
         <button class="back-link" type="button" @click="emit('cancel')">← 返回</button>
@@ -87,7 +87,7 @@ function submit() {
           <button v-if="imageUrl" class="text-button full" type="button" :disabled="saving" @click="removeImage">移除照片</button>
           <p class="hint">支援圖片檔，最大 15 MB。加入時會縮放，方便保存在裝置中。</p>
         </div>
-        <div class="form-actions"><p v-if="error" class="form-error" role="alert">{{ error }}</p><button class="primary-button full" type="submit" :disabled="saving || busyImage">{{ saving ? '儲存中…' : product ? '儲存變更' : '加入收藏' }} <span aria-hidden="true">↗</span></button><button class="text-button full" type="button" @click="emit('cancel')">取消</button></div>
+        <div class="form-actions"><p v-if="error" class="form-error" role="alert">{{ error }}</p><button class="primary-button full" type="submit" :disabled="saving || busyImage">{{ saving ? '儲存中…' : '儲存' }} <span aria-hidden="true">↗</span></button><button class="text-button full" type="button" @click="emit('cancel')">取消</button></div>
       </div>
     </form>
   </div>

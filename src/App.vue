@@ -69,7 +69,7 @@ const locationQuery = ref('')
 const locationCity = ref('')
 const locationsLoading = ref(false)
 const locationError = ref('')
-const locationFormOpen = ref(false)
+let locationFormReturnView = 'locations'
 const locationSaving = ref(false)
 const locationDeleting = ref(false)
 const showLocationDelete = ref(false)
@@ -249,6 +249,7 @@ async function unlinkLinkedLocation() {
 }
 async function openLocationForm(location = null, preselectedProductId = null, initialName = '') {
   const requestId = ++locationFormRequest
+  locationFormReturnView = view.value
   selectedLocation.value = location
   locationDraft.value = Object.fromEntries(['name', 'country', 'city', 'area', 'address', 'notes'].map(key => [key, location?.[key] ?? '']))
   if (!location) locationDraft.value.name = initialName
@@ -258,7 +259,7 @@ async function openLocationForm(location = null, preselectedProductId = null, in
   locationLinksLoading.value = Boolean(location)
   locationLinksFailed.value = false
   locationError.value = ''
-  locationFormOpen.value = true
+  view.value = 'location-form'
   await nextTick()
   locationNameInput.value?.focus()
   if (location) {
@@ -278,7 +279,7 @@ function toggleProductSelection(productId, checked) {
 function closeLocationForm() {
   if (locationSaving.value) return
   locationFormRequest += 1
-  locationFormOpen.value = false
+  view.value = locationFormReturnView
   selectedLocation.value = null
   locationError.value = ''
 }
@@ -289,19 +290,21 @@ async function handleLocationSave() {
   try {
     const saved = await saveLocation(locationDraft.value, selectedLocation.value?.id, selectedProductIds.value)
     await refreshLocations()
-    if (view.value === 'detail') await refreshLinkedLocations()
-    if (view.value === 'location-detail' && locationDetail.value?.id === saved.id) {
+    const returnView = locationFormReturnView
+    if (returnView === 'locations' || returnView === 'location-detail') {
       locationDetail.value = { ...saved, productCount: selectedProductIds.value.length }
+      view.value = 'location-detail'
       await refreshLocationDetailProducts()
+    } else {
+      view.value = returnView
+      if (returnView === 'detail') await refreshLinkedLocations()
     }
-    locationFormOpen.value = false
     feedback.value = selectedLocation.value ? '地點已更新。' : '地點已新增。'
     selectedLocation.value = null
   } catch (cause) { locationError.value = cause.message || '儲存地點失敗，請再試一次。' }
   finally { locationSaving.value = false }
 }
 function requestLocationDelete() {
-  locationFormOpen.value = false
   showLocationDelete.value = true
 }
 async function confirmLocationDelete() {
@@ -312,13 +315,13 @@ async function confirmLocationDelete() {
     const deleted = await deleteLocation(selectedLocation.value.id)
     if (!deleted) throw new Error('找不到這個地點，可能已被刪除。')
     await refreshLocations()
-    if (view.value === 'detail') await refreshLinkedLocations()
-    if (view.value === 'location-detail' && locationDetail.value?.id === selectedLocation.value.id) {
+    if (locationFormReturnView === 'location-detail' && locationDetail.value?.id === selectedLocation.value.id) {
       locationDetailRequest += 1
       locationDetail.value = null
       locationDetailProducts.value = []
-      view.value = 'locations'
     }
+    view.value = locationFormReturnView === 'location-detail' ? 'locations' : locationFormReturnView
+    if (view.value === 'detail') await refreshLinkedLocations()
     showLocationDelete.value = false
     selectedLocation.value = null
     feedback.value = '地點已刪除。'
@@ -332,7 +335,6 @@ watch(feedback, message => {
 function onKeyDown(event) {
   if (event.key === 'Escape') {
     showImagePreview.value = false
-    if (locationFormOpen.value && !locationSaving.value) closeLocationForm()
     if (showLocationDelete.value && !locationDeleting.value) showLocationDelete.value = false
     if (locationPickerOpen.value) closeLocationPicker()
     if (linkedLocationDetail.value) closeLinkedLocationDetail()
@@ -389,7 +391,6 @@ function startProductForLocation() {
   if (locationSaving.value || locationLinksLoading.value || locationLinksFailed.value) return
   locationProductReturnContext = { view: view.value, product: selected.value }
   creatingProductForLocation.value = true
-  locationFormOpen.value = false
   selected.value = null
   view.value = 'form'
   scrollToTop()
@@ -404,7 +405,6 @@ async function returnToLocationForm(productId) {
   selected.value = locationProductReturnContext?.product ?? null
   view.value = locationProductReturnContext?.view ?? 'locations'
   locationProductReturnContext = null
-  locationFormOpen.value = true
   scrollToTop()
   await nextTick()
   if (productId) locationProductsSection.value?.focus()
@@ -466,7 +466,9 @@ function navigate(target) {
   view.value = target
   selected.value = null
   feedback.value = ''
-  closeLocationForm()
+  locationFormRequest += 1
+  selectedLocation.value = null
+  locationError.value = ''
   showLocationDelete.value = false
   if (target === 'locations') refreshLocations()
   scrollToTop()
@@ -564,7 +566,7 @@ function closeRestoreConfirm() {
       <div class="nav-label">WORKSPACE</div>
       <nav aria-label="主要導覽">
         <button class="nav-item" :class="{ active: ['library','detail','form'].includes(view) }" @click="navigate('library')"><span aria-hidden="true">▦</span> 商品收藏 <span class="nav-count">{{ products.length }}</span></button>
-        <button class="nav-item" :class="{ active: view === 'locations' || view === 'location-detail' }" @click="navigate('locations')"><span aria-hidden="true">⌖</span> 地點列表</button>
+        <button class="nav-item" :class="{ active: ['locations', 'location-detail', 'location-form'].includes(view) }" @click="navigate('locations')"><span aria-hidden="true">⌖</span> 地點列表</button>
         <button class="nav-item" :class="{ active: view === 'overview' }" @click="navigate('overview')"><span aria-hidden="true">◫</span> 總覽 <span class="soon-dot"></span></button>
       </nav>
       <div class="sidebar-bottom"><div class="privacy-note"><span aria-hidden="true">✳</span><strong>你的收藏，只屬於你。</strong><p>資料與照片保存在這台裝置，不需註冊帳號。</p></div><button class="nav-item settings-item" :class="{ active: view === 'settings' }" @click="navigate('settings')"><span aria-hidden="true">⚙</span> 設定</button></div>
@@ -573,12 +575,14 @@ function closeRestoreConfirm() {
     <main ref="mainContent" class="main-content">
       <div class="mobile-bar" :class="{ 'is-collection': view === 'library' || view === 'locations', 'is-detail': view === 'detail' || view === 'location-detail' }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
+        <button v-else-if="view === 'location-form'" class="mobile-back" type="button" aria-label="返回" @click="closeLocationForm">‹</button>
         <button v-else-if="view === 'location-detail'" class="mobile-back" type="button" aria-label="返回地點列表" @click="navigate('locations')">‹</button>
         <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
         <button v-else-if="view !== 'library' && view !== 'locations'" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
-        <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="view !== 'detail' && view !== 'location-detail'">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : { library: '商品', locations: '地點列表', overview: '總覽', settings: '設定' }[view] }}</span></span>
+        <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="view !== 'detail' && view !== 'location-detail'">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : { library: '商品', locations: '地點列表', overview: '總覽', settings: '設定' }[view] }}</span></span>
         <span v-if="view === 'library' || view === 'locations'" class="mobile-bar-spacer"></span>
         <button v-else-if="view === 'form'" class="mobile-save" type="submit" form="product-form" :disabled="saving">{{ saving ? '儲存中' : '儲存' }}</button>
+        <button v-else-if="view === 'location-form'" class="mobile-save" type="submit" form="location-form" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'detail'" class="mobile-edit" type="button" @click="startEdit" aria-label="編輯商品">✎</button>
         <button v-else-if="view === 'location-detail'" class="mobile-edit" type="button" @click="openLocationForm(locationDetail)" aria-label="編輯地點">✎</button>
         <span v-else class="mobile-bar-spacer"></span>
@@ -612,7 +616,7 @@ function closeRestoreConfirm() {
           <div class="collection-results" aria-label="地點列表">
             <div v-if="!locationsLoading && locations.length" class="collection-caption"><span>{{ locationQuery || locationCity ? `找到 ${visibleLocations.length} 個` : `已收藏 ${locations.length} 個` }}地點</span><i aria-hidden="true"></i></div>
             <div v-if="locationsLoading" class="state-box" role="status"><span class="state-symbol">◌</span><h3>正在載入地點…</h3></div>
-            <div v-else-if="locationError && !locationFormOpen" class="state-box"><span class="state-symbol">!</span><h3>無法顯示地點</h3><p>{{ locationError }}</p><button class="secondary-button" type="button" @click="refreshLocations">重試</button></div>
+            <div v-else-if="locationError" class="state-box"><span class="state-symbol">!</span><h3>無法顯示地點</h3><p>{{ locationError }}</p><button class="secondary-button" type="button" @click="refreshLocations">重試</button></div>
             <div v-else-if="!locations.length" class="state-box locations-empty"><span class="location-empty-icon" aria-hidden="true">⌖</span><h2>還沒有地點</h2><p>點右上角「新增地點」，開始收藏想逛的店與喜歡的地方。</p></div>
             <div v-else-if="!visibleLocations.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的地點</h3><p>試試其他名稱，或切換地區。</p><button class="text-button" type="button" @click="locationQuery = ''; locationCity = ''">清除搜尋與篩選</button></div>
             <div v-else class="locations-list"><button v-for="location in visibleLocations" :key="location.id" class="location-row" type="button" :aria-label="`查看 ${location.name}${location.address ? `，${location.address}` : ''} 的地點詳情，已連結 ${location.productCount} 件商品`" @click="openLocationDetail(location)"><span class="location-pin" aria-hidden="true">⌖</span><span class="location-row-main"><strong>{{ location.name }}</strong><small v-if="location.city || location.country">{{ [location.city, location.country].filter(Boolean).join(' · ') }}</small><small v-if="location.address" class="location-row-address">{{ location.address }}</small><small class="location-product-count">{{ location.productCount ? `已連結 ${location.productCount} 件商品` : '尚未連結商品' }}</small></span><span class="location-row-action" aria-hidden="true">›</span></button></div>
@@ -639,6 +643,35 @@ function closeRestoreConfirm() {
 
       <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" @save="handleSave" @cancel="goBack" />
 
+      <div v-else-if="view === 'location-form'" class="editor-shell location-editor">
+        <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeLocationForm">← 返回</button><p class="eyebrow">MY PLACES / {{ selectedLocation ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedLocation ? '編輯地點' : '新增地點' }}</h1><p class="subtext">先記下地點名稱，再選擇可以在這裡買到的商品。</p></div></div>
+        <form id="location-form" class="editor-grid" @submit.prevent="handleLocationSave">
+          <div class="form-main panel">
+            <div class="section-title"><span class="step">01</span><div><h2>地點資料</h2><p>只有名稱是必填，其餘可以稍後補上。</p></div></div>
+            <label class="field"><span>地點名稱 <em>必填</em></span><input ref="locationNameInput" v-model="locationDraft.name" type="text" required maxlength="150" placeholder="例如：松本清 新宿東口店" /></label>
+            <label class="field">城市／地區（選填）<input v-model="locationDraft.city" type="text" maxlength="100" placeholder="例如：東京、新宿或台北" /></label>
+            <label class="field">地址<input v-model="locationDraft.address" type="text" maxlength="300" placeholder="例如：新宿 3-24-1" /></label>
+            <button class="location-extra-toggle" type="button" :aria-expanded="locationExtraOpen" aria-controls="location-extra-fields" @click="locationExtraOpen = !locationExtraOpen">{{ locationExtraOpen ? '收起位置資訊' : '更多位置資訊（選填）' }}<span aria-hidden="true">{{ locationExtraOpen ? '⌃' : '⌄' }}</span></button>
+            <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><label class="field">國家<input v-model="locationDraft.country" type="text" maxlength="100" placeholder="例如：日本" /></label><label class="field">區域<input v-model="locationDraft.area" type="text" maxlength="100" placeholder="例如：新宿區" /></label></div>
+            <label class="field">備註<textarea v-model="locationDraft.notes" maxlength="1000" rows="3" placeholder="營業時間、想買的東西…"></textarea></label>
+          </div>
+          <div class="form-side">
+            <section ref="locationProductsSection" class="location-product-picker panel" aria-labelledby="location-products-title" tabindex="-1">
+              <div class="section-title"><span class="step">02</span><div><h2 id="location-products-title">可購買的商品</h2><p>勾選已建立的商品，儲存時一併連結。</p></div></div>
+              <div class="location-products-heading"><span>已選 {{ selectedProductIds.length }} 件</span></div>
+              <label v-if="products.length" class="location-product-search"><span class="sr-only">搜尋已建立的商品</span><input v-model="locationProductQuery" type="search" placeholder="搜尋商品名稱、品牌或分類…" /></label>
+              <div v-if="loading || locationLinksLoading" class="product-picker-message" role="status">正在載入商品…</div>
+              <div v-else-if="error" class="product-picker-message" role="alert">商品列表讀取失敗，請返回後重試。</div>
+              <div v-else-if="!products.length" class="product-picker-message">目前沒有商品。新增後會自動回到這個地點並勾選商品。</div>
+              <div v-else-if="!productChoices.length" class="product-picker-message">找不到符合的商品。</div>
+              <div v-else class="product-picker-list"><ProductPickerOption v-for="product in productChoices" :key="product.id" :product="product" :checked="selectedProductIds.includes(product.id)" @toggle="toggleProductSelection" /></div>
+              <button class="location-create-product" type="button" :disabled="locationSaving || locationLinksLoading || locationLinksFailed" @click="startProductForLocation"><span aria-hidden="true">＋</span> 新增商品並連結</button>
+            </section>
+            <div class="form-actions"><p v-if="locationError" class="form-error" role="alert">{{ locationError }}</p><button class="primary-button full" type="submit" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中…' : '儲存' }} <span aria-hidden="true">↗</span></button><button class="text-button full" type="button" @click="closeLocationForm">取消</button><button v-if="selectedLocation" class="location-delete-link full" type="button" @click="requestLocationDelete">刪除地點</button></div>
+          </div>
+        </form>
+      </div>
+
       <template v-else-if="view === 'settings'">
         <header class="page-heading settings-heading"><div><p class="eyebrow">DATA MANAGEMENT</p><h1>設定<span class="heading-spark">✦</span></h1><p class="subtext">管理你的收藏資料。</p></div></header>
         <section class="settings-panel panel">
@@ -662,34 +695,10 @@ function closeRestoreConfirm() {
 
       <div v-else class="coming-soon"><button class="back-link" @click="navigate('library')">← 返回商品收藏</button><span class="coming-icon">✦</span><p class="eyebrow">COMING SOON</p><h1>{{ { locations: '地點清單', overview: '收藏總覽', settings: '設定' }[view] }}</h1><p>這個功能正在規劃中。現在先把想買的商品收藏起來吧。</p><button class="primary-button" @click="navigate('library')">查看商品收藏</button></div>
     </main>
-    <nav class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: ['library', 'detail', 'form'].includes(view) && !creatingProductForLocation }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: view === 'locations' || view === 'location-detail' || creatingProductForLocation }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
+    <nav class="mobile-nav" aria-label="行動版導覽"><button :class="{ active: ['library', 'detail', 'form'].includes(view) && !creatingProductForLocation }" @click="navigate('library')"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">商品</span></button><button :class="{ active: ['locations', 'location-detail', 'location-form'].includes(view) || creatingProductForLocation }" @click="navigate('locations')"><span class="nav-icon" aria-hidden="true">⌖</span><span class="nav-text">地點</span></button><button :class="{ active: view === 'overview' }" @click="navigate('overview')"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-text">總覽</span></button><button :class="{ active: view === 'settings' }" @click="navigate('settings')"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-text">設定</span></button></nav>
     <div v-if="showDelete" class="dialog-backdrop" @click.self="showDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-desc"><span class="dialog-icon">!</span><h2 id="delete-title">刪除這件商品？</h2><p id="delete-desc">「{{ selected?.name }}」與它的照片會從這台裝置永久刪除，無法復原。</p><div class="dialog-actions"><button class="secondary-button" :disabled="deleting" @click="showDelete = false">取消</button><button class="danger-fill" :disabled="deleting" @click="confirmDelete">{{ deleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <LocationLinkPicker v-if="locationPickerOpen" :locations="locationPickerLocations" :linked-ids="locationPickerLinkedIds" :loading="locationPickerLoading" :error="locationPickerError" :busy-id="linkingLocationId" @close="closeLocationPicker" @retry="loadLocationPicker" @select="selectLocationForProduct" @create="createLocationFromPicker" />
     <LinkedLocationDetail v-if="linkedLocationDetail" :location="linkedLocationDetail" :busy="unlinkingLocation" :error="unlinkLocationError" :purchase-saving="purchaseSaving" :purchase-error="purchaseError" :purchase-saved-key="purchaseSavedKey" @close="closeLinkedLocationDetail" @unlink="unlinkLinkedLocation" @edit="editLinkedLocation" @save-purchase="saveLinkedLocationPurchase" @clear-purchase-error="purchaseError = ''" />
-    <div v-if="locationFormOpen" class="dialog-backdrop" @click.self="closeLocationForm">
-      <form class="dialog location-dialog" role="dialog" aria-modal="true" aria-labelledby="location-form-title" @submit.prevent="handleLocationSave">
-        <h2 id="location-form-title">{{ selectedLocation ? '編輯地點' : '新增地點' }}</h2>
-        <label class="field"><span>地點名稱 <em>*</em></span><input ref="locationNameInput" v-model="locationDraft.name" type="text" required maxlength="150" placeholder="例如：松本清 新宿東口店" /></label>
-        <label class="field">城市／地區（選填）<input v-model="locationDraft.city" type="text" maxlength="100" placeholder="例如：東京、新宿或台北" /></label>
-        <label class="field">地址<input v-model="locationDraft.address" type="text" maxlength="300" placeholder="例如：新宿 3-24-1" /></label>
-        <button class="location-extra-toggle" type="button" :aria-expanded="locationExtraOpen" aria-controls="location-extra-fields" @click="locationExtraOpen = !locationExtraOpen">{{ locationExtraOpen ? '收起位置資訊' : '更多位置資訊（選填）' }}<span aria-hidden="true">{{ locationExtraOpen ? '⌃' : '⌄' }}</span></button>
-        <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><label class="field">國家<input v-model="locationDraft.country" type="text" maxlength="100" placeholder="例如：日本" /></label><label class="field">區域<input v-model="locationDraft.area" type="text" maxlength="100" placeholder="例如：新宿區" /></label></div>
-        <label class="field">備註<textarea v-model="locationDraft.notes" maxlength="1000" rows="3" placeholder="營業時間、想買的東西…"></textarea></label>
-        <section ref="locationProductsSection" class="location-product-picker" aria-labelledby="location-products-title" tabindex="-1">
-          <div class="location-products-heading"><h3 id="location-products-title">可購買的商品</h3><span>已選 {{ selectedProductIds.length }} 件</span></div>
-          <p>勾選已建立的商品，儲存時一併連結到這個地點。</p>
-          <label v-if="products.length" class="location-product-search"><span class="sr-only">搜尋已建立的商品</span><input v-model="locationProductQuery" type="search" placeholder="搜尋商品名稱、品牌或分類…" /></label>
-          <div v-if="loading || locationLinksLoading" class="product-picker-message" role="status">正在載入商品…</div>
-          <div v-else-if="error" class="product-picker-message" role="alert">商品列表讀取失敗，請關閉表單後重試。</div>
-          <div v-else-if="!products.length" class="product-picker-message">目前沒有商品。新增後會自動回到這個地點並勾選商品。</div>
-          <div v-else-if="!productChoices.length" class="product-picker-message">找不到符合的商品。</div>
-          <div v-else class="product-picker-list"><ProductPickerOption v-for="product in productChoices" :key="product.id" :product="product" :checked="selectedProductIds.includes(product.id)" @toggle="toggleProductSelection" /></div>
-          <button class="location-create-product" type="button" :disabled="locationSaving || locationLinksLoading || locationLinksFailed" @click="startProductForLocation"><span aria-hidden="true">＋</span> 新增商品並連結</button>
-        </section>
-        <p v-if="locationError" class="form-error" role="alert">{{ locationError }}</p>
-        <div class="location-dialog-footer"><button v-if="selectedLocation" class="location-delete-link" type="button" @click="requestLocationDelete">刪除地點</button><div class="dialog-actions"><button class="secondary-button" type="button" @click="closeLocationForm">取消</button><button class="primary-button" type="submit" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中…' : '儲存地點' }}</button></div></div>
-      </form>
-    </div>
     <div v-if="showLocationDelete" class="dialog-backdrop" @click.self="showLocationDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="location-delete-title" aria-describedby="location-delete-desc"><span class="dialog-icon">!</span><h2 id="location-delete-title">刪除這個地點？</h2><p id="location-delete-desc">「{{ selectedLocation?.name }}」及其商品關聯會從這台裝置永久刪除，無法復原。商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="locationDeleting" @click="showLocationDelete = false">取消</button><button class="danger-fill" type="button" :disabled="locationDeleting" @click="confirmLocationDelete">{{ locationDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showImagePreview && detailImage" class="image-preview" role="dialog" aria-modal="true" :aria-label="`${selected?.name} 的照片`" @click.self="showImagePreview = false"><button ref="imageCloseButton" class="image-preview-close" type="button" aria-label="關閉照片" @click="showImagePreview = false">×</button><img :src="detailImage" :alt="selected?.name" /></div>
     <div v-if="restoreConfirmOpen" class="dialog-backdrop" @click.self="closeRestoreConfirm"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-desc"><span class="dialog-icon">!</span><h2 id="restore-title">確認還原備份？</h2><p id="restore-desc">這會取代這台裝置目前的所有資料（毀滅性操作）。<br />商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、關聯 {{ restoreCounts?.locationProducts ?? 0 }} 筆、圖片 {{ restoreCounts?.images ?? 0 }} 張。</p><div v-if="restoreWarnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in restoreWarnings" :key="index">{{ warning }}</li></ul></div><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeRestoreConfirm">取消</button><button class="danger-fill" type="button" :disabled="backupBusy" @click="handleConfirmRestore">{{ backupBusy ? '還原中…' : '確認還原' }}</button></div></div></div>
