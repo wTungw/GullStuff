@@ -127,6 +127,7 @@
 }
 .brand-mark{overflow:hidden}
 .brand-mark img{display:block;width:100%;height:100%;object-fit:contain}
+.mobile-bar.is-editor .mobile-title>span{color:#214c3e}
 .collection-caption{display:none}
 @media(min-width:641px){
   .library-panel{background:transparent;border:0;box-shadow:none;padding:0}

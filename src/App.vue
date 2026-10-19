@@ -774,7 +774,7 @@ function closeRestoreConfirm() {
     </aside>
 
     <main ref="mainContent" class="main-content">
-      <div class="mobile-bar" :class="{ 'is-collection': ['library', 'locations', 'groups'].includes(view), 'is-detail': ['detail', 'location-detail', 'group-detail'].includes(view) }">
+      <div class="mobile-bar" :class="{ 'is-collection': ['library', 'locations', 'groups'].includes(view), 'is-detail': ['detail', 'location-detail', 'group-detail'].includes(view), 'is-editor': ['form', 'location-form', 'group-form'].includes(view) }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
         <button v-else-if="view === 'location-form'" class="mobile-back" type="button" aria-label="返回" @click="closeLocationForm">‹</button>
         <button v-else-if="view === 'group-form'" class="mobile-back" type="button" aria-label="返回" @click="closeGroupForm">‹</button>
@@ -782,7 +782,7 @@ function closeRestoreConfirm() {
         <button v-else-if="view === 'location-detail'" class="mobile-back" type="button" aria-label="返回地點列表" @click="navigate('locations')">‹</button>
         <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnGroupId ? '返回群組詳情' : productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
         <button v-else-if="!['library', 'locations', 'groups'].includes(view)" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
-        <span class="mobile-title"><small class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="!['detail', 'location-detail', 'group-detail'].includes(view)">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : view === 'group-form' ? selectedGroup ? '編輯群組' : '新增群組' : { library: '商品', locations: '地點列表', groups: '群組', settings: '設定' }[view] }}</span></span>
+        <span class="mobile-title"><small v-if="!['form', 'location-form', 'group-form'].includes(view)" class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="!['detail', 'location-detail', 'group-detail'].includes(view)">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : view === 'group-form' ? selectedGroup ? '編輯群組' : '新增群組' : { library: '商品', locations: '地點列表', groups: '群組', settings: '設定' }[view] }}</span></span>
         <span v-if="['library', 'locations', 'groups'].includes(view)" class="mobile-bar-spacer"></span>
         <button v-else-if="view === 'form'" class="mobile-save" type="submit" form="product-form" :disabled="saving">{{ saving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'location-form'" class="mobile-save" type="submit" form="location-form" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中' : '儲存' }}</button>
