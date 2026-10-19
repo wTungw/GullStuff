@@ -14,10 +14,9 @@ export async function saveBackupFile(bytes, filename, mime) {
   try {
     link.click()
   } finally {
-    // Remove the throwaway anchor and release the blob URL. The browser has
-    // already claimed the download by the time click() returns.
     link.remove()
-    URL.revokeObjectURL(url)
+    // Some mobile browsers claim downloads asynchronously after click() returns.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 }
 

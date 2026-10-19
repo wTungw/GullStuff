@@ -11,6 +11,7 @@ import { deleteLocation, linkProductToLocation, listLocations, listLocationsForP
 import { useImageUrl } from './composables/useImageUrl.js'
 import { formatPurchasePrice } from './utils/purchase.js'
 import { exportBackup, validateBackup, restoreBackup } from './data/backup.js'
+import { exportSpreadsheet } from './data/spreadsheetExport.js'
 import { readBackupFile, saveBackupFile } from './platform/backupFile.js'
 
 const products = ref([])
@@ -18,6 +19,7 @@ const loading = ref(true)
 const error = ref('')
 const feedback = ref('')
 let feedbackTimer
+let backupFeedbackTimer
 let locationFormRequest = 0
 let linkedLocationsRequest = 0
 let locationDetailRequest = 0
@@ -340,6 +342,7 @@ onMounted(() => window.addEventListener('keydown', onKeyDown))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
   window.clearTimeout(feedbackTimer)
+  window.clearTimeout(backupFeedbackTimer)
 })
 watch(view, async () => {
   showImagePreview.value = false
@@ -468,15 +471,35 @@ function navigate(target) {
   if (target === 'locations') refreshLocations()
   scrollToTop()
 }
+function setBackupFeedback(message) {
+  window.clearTimeout(backupFeedbackTimer)
+  backupFeedback.value = message
+  if (message) backupFeedbackTimer = window.setTimeout(() => { backupFeedback.value = '' }, 3000)
+}
 async function handleExportBackup() {
   backupBusy.value = true
   backupError.value = ''
+  setBackupFeedback('')
   try {
     const { bytes, filename } = await exportBackup({ platform: 'web' })
-    saveBackupFile(bytes, filename, 'application/zip')
-    backupFeedback.value = '備份已匯出。'
+    await saveBackupFile(bytes, filename, 'application/zip')
+    setBackupFeedback('備份已匯出。')
   } catch (cause) {
     backupError.value = cause.message || '匯出備份失敗，請重試。'
+  } finally {
+    backupBusy.value = false
+  }
+}
+async function handleExportSpreadsheet() {
+  backupBusy.value = true
+  backupError.value = ''
+  setBackupFeedback('')
+  try {
+    const { bytes, filename, mime } = await exportSpreadsheet()
+    await saveBackupFile(bytes, filename, mime)
+    setBackupFeedback('Excel 表格已匯出。')
+  } catch (cause) {
+    backupError.value = cause.message || '匯出表格失敗，請重試。'
   } finally {
     backupBusy.value = false
   }
@@ -484,6 +507,7 @@ async function handleExportBackup() {
 async function handleImportBackup() {
   backupBusy.value = true
   backupError.value = ''
+  setBackupFeedback('')
   try {
     const result = await readBackupFile()
     if (!result) return
@@ -515,10 +539,9 @@ async function handleConfirmRestore() {
     pendingRestoreBytes.value = null
     restoreWarnings.value = []
     restoreCounts.value = null
-    backupFeedback.value = `還原完成：商品 ${result.restored.products} 件、地點 ${result.restored.locations} 個、關聯 ${result.restored.locationProducts} 筆、圖片 ${result.restored.images} 張。`
-    if (result.warnings?.length) {
-      backupFeedback.value += `（${result.warnings.length} 個警告）`
-    }
+    const counts = result.restored
+    const warning = result.warnings?.length ? `（${result.warnings.length} 個警告）` : ''
+    setBackupFeedback(`還原完成：商品 ${counts.products} 件、地點 ${counts.locations} 個、關聯 ${counts.locationProducts} 筆、圖片 ${counts.images} 張。${warning}`)
   } catch (cause) {
     backupError.value = cause.message || '還原失敗，請重試。'
   } finally {
@@ -625,6 +648,11 @@ function closeRestoreConfirm() {
             <div class="settings-actions">
               <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
               <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
+            </div>
+            <div class="settings-table-export">
+              <h3>表格匯出</h3>
+              <p class="settings-intro">將商品、地點及購買價格整理成 Excel 工作表，方便檢視與編輯。表格不含照片，也無法用於備份還原。</p>
+              <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleExportSpreadsheet">{{ backupBusy ? '處理中…' : '匯出 Excel 表格' }}</button>
             </div>
             <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>
             <p v-if="backupError" class="settings-error" role="alert">{{ backupError }}</p>

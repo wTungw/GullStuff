@@ -395,6 +395,9 @@
 .settings-section h2{margin:0 0 12px;color:#294e3e;font-size:20px}
 .settings-intro{margin:0 0 20px;color:#526b59;font-size:13px;line-height:1.6}
 .settings-actions{display:flex;gap:10px;margin-bottom:16px}
+.settings-table-export{padding-top:20px;border-top:1px solid #e8eee8}
+.settings-table-export h3{margin:0 0 8px;color:#294e3e;font-size:16px}
+.settings-table-export .settings-intro{margin-bottom:12px}
 .settings-feedback{margin:12px 0 0;color:#2d7953;font-size:12px;font-weight:700}
 .settings-error{margin:12px 0 0;color:#b65446;font-size:12px;font-weight:700}
 .restore-warnings{margin:14px 0 0;padding:12px 14px;background:#fff8e8;border-left:3px solid #d4a01c;border-radius:6px}
@@ -411,4 +414,5 @@
   .settings-intro{font-size:12px}
   .settings-actions{flex-direction:column}
   .settings-actions button{width:100%;justify-content:center}
+  .settings-table-export button{width:100%;justify-content:center}
 }
