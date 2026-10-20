@@ -126,7 +126,7 @@
   .toast,.global-error{top:81px}
 }
 .brand-mark{position:relative;width:42px;height:42px;overflow:hidden}
-.brand-mark img{position:absolute;top:50%;left:50%;display:block;width:190%;height:190%;max-width:none;object-fit:contain;transform:translate(-50%,-50%)}
+.brand-mark img{position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;object-fit:cover}
 .mobile-bar.is-editor .mobile-title>span{color:#1a2634}
 .collection-caption{display:none}
 @media(min-width:641px){
