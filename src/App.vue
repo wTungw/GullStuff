@@ -8,6 +8,8 @@ import LinkedLocationDetail from './components/LinkedLocationDetail.vue'
 import LocationDetail from './components/LocationDetail.vue'
 import GroupProductRow from './components/GroupProductRow.vue'
 import GroupIcon from './components/GroupIcon.vue'
+import brandLogo from './assets/gullstuff-logo-original.png'
+import { useTheme } from './composables/useTheme.js'
 import { deleteProduct, filterProducts, listProducts, saveProduct } from './data/products.js'
 import { deleteLocation, linkProductToLocation, listLocations, listLocationsForProduct, listProductIdsForLocation, listProductsForLocation, saveLocation, saveLocationPurchase, unlinkProductFromLocation } from './data/locations.js'
 import { GROUP_COLORS, GROUP_ICONS, addProductToGroup, deleteGroup, groupAppearance, listGroupIdsForProduct, listGroups, listProductsForGroup, removeProductFromGroup, saveGroup } from './data/groups.js'
@@ -18,6 +20,7 @@ import { exportSpreadsheet } from './data/spreadsheetExport.js'
 import { readBackupFile, saveBackupFile } from './platform/backupFile.js'
 
 const products = ref([])
+const { darkMode } = useTheme()
 const loading = ref(true)
 const error = ref('')
 const feedback = ref('')
@@ -98,7 +101,7 @@ const groupDetailLoading = ref(false)
 const groupDetailError = ref(false)
 let groupDetailRequest = 0
 let groupFormReturnView = 'groups'
-const groupDraft = ref({ name: '', notes: '', icon: 'folder', color: 'forest' })
+const groupDraft = ref({ name: '', notes: '', icon: 'folder', color: 'ocean' })
 const selectedGroup = ref(null)
 const selectedGroupProductIds = ref([])
 const groupProductQuery = ref('')
@@ -399,7 +402,7 @@ async function openGroupForm(group = null, productId = null) {
   const requestId = ++groupFormRequest
   groupFormReturnView = view.value
   selectedGroup.value = group
-  groupDraft.value = { name: group?.name ?? '', notes: group?.notes ?? '', icon: group?.icon ?? 'folder', color: group?.color ?? 'forest' }
+  groupDraft.value = { name: group?.name ?? '', notes: group?.notes ?? '', icon: group?.icon ?? 'folder', color: group ? group.color ?? 'forest' : 'ocean' }
   groupProductQuery.value = ''
   selectedGroupProductIds.value = productId ? [productId] : []
   groupFormError.value = ''
@@ -761,9 +764,9 @@ function closeRestoreConfirm() {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'collection-shell': ['library', 'locations', 'groups'].includes(view) }">
+  <div class="app-shell" :class="{ 'collection-shell': ['library', 'locations', 'groups', 'settings'].includes(view) }">
     <aside class="sidebar">
-      <a class="brand" href="#" @click.prevent="navigate('library')"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span><span>GullStuff<small>把喜歡的，好好收著。</small></span></a>
+      <a class="brand" href="#" @click.prevent="navigate('library')"><span class="brand-mark" aria-hidden="true"><img :src="brandLogo" alt="" /></span><span>GullStuff<small>把喜歡的，好好收著。</small></span></a>
       <div class="nav-label">WORKSPACE</div>
       <nav aria-label="主要導覽">
         <button class="nav-item" :class="{ active: ['library','detail','form'].includes(view) }" @click="navigate('library')"><span aria-hidden="true">▦</span> 商品收藏 <span class="nav-count">{{ products.length }}</span></button>
@@ -774,16 +777,16 @@ function closeRestoreConfirm() {
     </aside>
 
     <main ref="mainContent" class="main-content">
-      <div class="mobile-bar" :class="{ 'is-collection': ['library', 'locations', 'groups'].includes(view), 'is-detail': ['detail', 'location-detail', 'group-detail'].includes(view), 'is-editor': ['form', 'location-form', 'group-form'].includes(view) }">
+      <div class="mobile-bar" :class="{ 'is-collection': ['library', 'locations', 'groups', 'settings'].includes(view), 'is-detail': ['detail', 'location-detail', 'group-detail'].includes(view), 'is-editor': ['form', 'location-form', 'group-form'].includes(view) }">
         <button v-if="view === 'form'" class="mobile-back" type="button" aria-label="返回" @click="goBack">‹</button>
         <button v-else-if="view === 'location-form'" class="mobile-back" type="button" aria-label="返回" @click="closeLocationForm">‹</button>
         <button v-else-if="view === 'group-form'" class="mobile-back" type="button" aria-label="返回" @click="closeGroupForm">‹</button>
         <button v-else-if="view === 'group-detail'" class="mobile-back" type="button" aria-label="返回群組列表" @click="navigate('groups')">‹</button>
         <button v-else-if="view === 'location-detail'" class="mobile-back" type="button" aria-label="返回地點列表" @click="navigate('locations')">‹</button>
         <button v-else-if="view === 'detail'" class="mobile-back" type="button" :aria-label="productReturnGroupId ? '返回群組詳情' : productReturnLocationId ? '返回地點詳情' : '返回商品收藏'" @click="returnFromProductDetail">‹</button>
-        <button v-else-if="!['library', 'locations', 'groups'].includes(view)" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
-        <span class="mobile-title"><small v-if="!['form', 'location-form', 'group-form'].includes(view)" class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt="" /></span>GullStuff</small><span v-if="!['detail', 'location-detail', 'group-detail'].includes(view)">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : view === 'group-form' ? selectedGroup ? '編輯群組' : '新增群組' : { library: '商品', locations: '地點列表', groups: '群組', settings: '設定' }[view] }}</span></span>
-        <span v-if="['library', 'locations', 'groups'].includes(view)" class="mobile-bar-spacer"></span>
+        <button v-else-if="!['library', 'locations', 'groups', 'settings'].includes(view)" class="mobile-back" type="button" aria-label="返回商品收藏" @click="navigate('library')">‹</button>
+        <span class="mobile-title"><small v-if="!['form', 'location-form', 'group-form'].includes(view)" class="mobile-wordmark"><span class="brand-mark" aria-hidden="true"><img :src="brandLogo" alt="" /></span>GullStuff</small><span v-if="!['detail', 'location-detail', 'group-detail'].includes(view)">{{ view === 'form' ? selected ? '編輯商品' : '新增商品' : view === 'location-form' ? selectedLocation ? '編輯地點' : '新增地點' : view === 'group-form' ? selectedGroup ? '編輯群組' : '新增群組' : { library: '商品', locations: '地點列表', groups: '群組', settings: '設定' }[view] }}</span></span>
+        <span v-if="['library', 'locations', 'groups', 'settings'].includes(view)" class="mobile-bar-spacer"></span>
         <button v-else-if="view === 'form'" class="mobile-save" type="submit" form="product-form" :disabled="saving">{{ saving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'location-form'" class="mobile-save" type="submit" form="location-form" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'group-form'" class="mobile-save" type="submit" form="group-form" :disabled="groupSaving || loading || groupFormLinksLoading || groupFormLinksFailed || Boolean(error)">{{ groupSaving ? '儲存中' : '儲存' }}</button>
@@ -924,22 +927,31 @@ function closeRestoreConfirm() {
       </div>
 
       <template v-else-if="view === 'settings'">
-        <header class="page-heading settings-heading"><div><p class="eyebrow">DATA MANAGEMENT</p><h1>設定<span class="heading-spark">✦</span></h1><p class="subtext">管理你的收藏資料。</p></div></header>
-        <section class="settings-panel panel">
-          <div class="settings-section">
-            <h2>備份與還原</h2>
-            <p class="settings-intro">備份包含所有商品、地點、群組、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料。</p>
-            <div class="settings-actions">
-              <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
-              <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
+        <header class="page-heading library-heading settings-heading"><div><p class="eyebrow">PREFERENCES</p><h1>設定<span class="heading-spark">✦</span></h1><p class="subtext">調整外觀並管理收藏資料。</p></div></header>
+        <section class="library-panel settings-panel">
+          <div class="collection-results settings-results">
+            <div class="settings-section settings-appearance">
+              <h2>外觀</h2>
+              <label class="theme-setting">
+                <span class="theme-setting-copy"><strong>深色模式</strong><small>使用藍色背景與白色文字</small></span>
+                <input v-model="darkMode" type="checkbox" role="switch" aria-label="深色模式" />
+              </label>
             </div>
-            <div class="settings-table-export">
-              <h3>表格匯出</h3>
-              <p class="settings-intro">將商品、地點、群組、關聯及購買價格整理成 Excel 工作表。表格不含照片，也無法用於備份還原。</p>
-              <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleExportSpreadsheet">{{ backupBusy ? '處理中…' : '匯出 Excel 表格' }}</button>
+            <div class="settings-section">
+              <h2>備份與還原</h2>
+              <p class="settings-intro">備份包含所有商品、地點、群組、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料。</p>
+              <div class="settings-actions">
+                <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
+                <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
+              </div>
+              <div class="settings-table-export">
+                <h3>表格匯出</h3>
+                <p class="settings-intro">將商品、地點、群組、關聯及購買價格整理成 Excel 工作表。表格不含照片，也無法用於備份還原。</p>
+                <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleExportSpreadsheet">{{ backupBusy ? '處理中…' : '匯出 Excel 表格' }}</button>
+              </div>
+              <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>
+              <p v-if="backupError" class="settings-error" role="alert">{{ backupError }}</p>
             </div>
-            <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>
-            <p v-if="backupError" class="settings-error" role="alert">{{ backupError }}</p>
           </div>
         </section>
       </template>

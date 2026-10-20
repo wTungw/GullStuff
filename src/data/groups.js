@@ -9,7 +9,7 @@ export const GROUP_ICONS = [
 ]
 export const GROUP_COLORS = [
   { id: 'forest', label: '森林綠', accent: '#3f7258', tint: '#e9eee9' },
-  { id: 'ocean', label: '海洋藍', accent: '#477c9a', tint: '#e7f1f6' },
+  { id: 'ocean', label: '海洋藍', accent: '#244a76', tint: '#e8f0f8' },
   { id: 'coral', label: '珊瑚橘', accent: '#ad6958', tint: '#f7ebe7' },
   { id: 'gold', label: '暖金色', accent: '#9a7636', tint: '#f6f0df' },
   { id: 'violet', label: '薰衣紫', accent: '#806b9d', tint: '#f0ecf6' }
