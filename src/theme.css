@@ -39,6 +39,10 @@
 :root[data-theme='dark'] .nav-item:hover,
 :root[data-theme='dark'] .nav-item.active{background:var(--dark-raised);color:var(--dark-text)}
 :root[data-theme='dark'] .nav-count{background:#fff;color:#244070}
+:root[data-theme='dark'] .product-layout-switch{background:var(--dark-surface);border-color:var(--dark-border)}
+:root[data-theme='dark'] .product-layout-switch button{color:var(--dark-muted)}
+:root[data-theme='dark'] .product-layout-switch button[aria-pressed='true']{background:#fff;color:#244070}
+:root[data-theme='dark'] .product-grid.is-list .product-card{border-color:var(--dark-border)}
 :root[data-theme='dark'] .mobile-nav button{color:#a9bdd2}
 :root[data-theme='dark'] .mobile-nav button.active{color:#fff}
 :root[data-theme='dark'] .mobile-title,
@@ -234,6 +238,32 @@
 :root[data-theme='dark'] .editor-shell .location-create-product,
 :root[data-theme='dark'] .editor-shell .group-order-row button{background:var(--dark-bg)}
 :root[data-theme='dark'] .editor-shell .group-choice input:checked+span{background:var(--dark-bg)}
+
+@media(min-width:641px){
+  :root[data-theme='dark']{--dark-surface:var(--dark-bg);--dark-raised:var(--dark-bg)}
+  :root[data-theme='dark'] .privacy-note{background:#223955}
+  :root[data-theme='dark'] .product-grid:not(.is-list) .product-card{background:#223955;border-radius:14px}
+  :root[data-theme='dark'] .product-grid:not(.is-list) .card-image{background:transparent}
+  :root[data-theme='dark'] .library-heading .desktop-add,
+  :root[data-theme='dark'] .locations-heading .primary-button,
+  :root[data-theme='dark'] .group-heading .primary-button{background:#223955;color:#fff;border-radius:11px;padding:0 13px}
+  :root[data-theme='dark'] .library-heading .desktop-add:hover,
+  :root[data-theme='dark'] .locations-heading .primary-button:hover,
+  :root[data-theme='dark'] .group-heading .primary-button:hover{background:#2b496e;color:#fff;text-decoration:none}
+  :root[data-theme='dark'] .nav-item:hover,
+  :root[data-theme='dark'] .nav-item.active{background:#223955;color:#fff}
+  :root[data-theme='dark'] .nav-item.active{box-shadow:none}
+  :root[data-theme='dark'] .settings-item::before{background:var(--dark-border)}
+  :root[data-theme='dark'] .secondary-button:hover,
+  :root[data-theme='dark'] .category-chips button:hover,
+  :root[data-theme='dark'] .location-create-product:hover,
+  :root[data-theme='dark'] .group-add-button:hover,
+  :root[data-theme='dark'] .product-picker-option:hover,
+  :root[data-theme='dark'] .product-picker-option.selected,
+  :root[data-theme='dark'] .location-row:hover,
+  :root[data-theme='dark'] .location-product-row:hover,
+  :root[data-theme='dark'] .group-choice input:checked+span{background:var(--dark-bg)}
+}
 
 @media(max-width:640px){
   :root[data-theme='dark'] .main-content,

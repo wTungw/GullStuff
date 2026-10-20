@@ -37,6 +37,7 @@ const mainContent = ref(null)
 const selected = ref(null)
 const query = ref('')
 const category = ref('')
+const productLayout = ref('grid')
 const showDelete = ref(false)
 const showImagePreview = ref(false)
 const imageTrigger = ref(null)
@@ -801,8 +802,7 @@ function closeRestoreConfirm() {
       <template v-if="view === 'library'">
         <header class="page-heading library-heading"><div><p class="eyebrow">YOUR PERSONAL COLLECTION</p><h1>商品收藏<span class="heading-spark">✦</span></h1><p class="subtext">把想買的、喜歡的，先記在這裡。</p></div><button class="primary-button desktop-add" @click="startCreate">＋ 新增商品</button></header>
         <section class="library-panel">
-          <div class="section-top"><div><h2>所有商品 <span>{{ products.length }}</span></h2><p>一眼找到你記下的每件好物</p></div></div>
-          <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋商品名稱</span><input v-model="query" type="search" placeholder="搜尋商品名稱…" /></label><label class="filter-wrap"><span class="sr-only">依分類篩選</span><select v-model="category"><option value="">所有分類</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select></label></div>
+          <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋商品名稱</span><input v-model="query" type="search" placeholder="搜尋商品名稱…" /></label><label class="filter-wrap"><span class="sr-only">依分類篩選</span><select v-model="category"><option value="">所有分類</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select></label><div class="product-layout-switch" role="group" aria-label="商品顯示方式"><button type="button" :aria-pressed="productLayout === 'list'" @click="productLayout = 'list'"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 5h2m3 0h9M3 10h2m3 0h9M3 15h2m3 0h9" stroke-linecap="round"/></svg>清單</button><button type="button" :aria-pressed="productLayout === 'grid'" @click="productLayout = 'grid'"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>網格</button></div></div>
           <div class="category-chips" aria-label="依分類篩選商品"><button type="button" :class="{ active: !category }" @click="category = ''">全部</button><button v-for="item in categories" :key="item" type="button" :class="{ active: category === item }" @click="category = item">{{ item }}</button></div>
           <div class="collection-results" aria-label="商品列表">
             <div v-if="!loading && products.length" class="collection-caption"><span>{{ query || category ? `找到 ${visible.length} 件` : `已收藏 ${products.length} 件` }}</span><i aria-hidden="true"></i></div>
@@ -810,7 +810,7 @@ function closeRestoreConfirm() {
             <div v-else-if="error" class="state-box"><span class="state-symbol">!</span><h3>無法顯示商品</h3><button class="secondary-button" @click="refresh">重試</button></div>
             <div v-else-if="!products.length" class="state-box empty-state"><span class="empty-illustration" aria-hidden="true">✦</span><p class="eyebrow">START YOUR COLLECTION</p><h3>從第一件喜歡的東西開始</h3><p>點右上角「新增商品」，記下第一件喜歡的東西。</p></div>
             <div v-else-if="!visible.length" class="state-box"><span class="state-symbol">⌕</span><h3>沒有找到符合的商品</h3><p>試試其他名稱，或切換分類。</p><button class="text-button" @click="query = ''; category = ''">清除搜尋與篩選</button></div>
-            <div v-else class="product-grid"><ProductCard v-for="product in visible" :key="product.id" :product="product" @open="openProduct" /></div>
+            <div v-else class="product-grid" :class="{ 'is-list': productLayout === 'list' }"><ProductCard v-for="product in visible" :key="product.id" :product="product" @open="openProduct" /></div>
           </div>
         </section>
       </template>
@@ -818,7 +818,6 @@ function closeRestoreConfirm() {
       <template v-else-if="view === 'locations'">
         <header class="page-heading locations-heading"><div><p class="eyebrow">PLACES TO REMEMBER</p><h1>地點列表<span class="heading-spark">✦</span></h1><p class="subtext">把想逛的店和去過的地方，收在一起。</p></div><button class="primary-button" type="button" @click="openLocationForm()">＋ 新增地點</button></header>
         <section class="library-panel locations-panel">
-          <div class="section-top"><div><h2>所有地點 <span>{{ locations.length }}</span></h2><p>記下想逛的店與喜歡的地方</p></div></div>
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋地點</span><input v-model="locationQuery" type="search" placeholder="搜尋地點名稱、地區或地址…" /></label><label class="filter-wrap"><span class="sr-only">依地區篩選</span><select v-model="locationCity"><option value="">所有地區</option><option v-for="city in locationCities" :key="city" :value="city">{{ city }}</option></select></label></div>
           <div class="category-chips" aria-label="依地區篩選地點"><button type="button" :class="{ active: !locationCity }" @click="locationCity = ''">全部</button><button v-for="city in locationCities" :key="city" type="button" :class="{ active: locationCity === city }" @click="locationCity = city">{{ city }}</button></div>
           <div class="collection-results" aria-label="地點列表">
@@ -835,7 +834,6 @@ function closeRestoreConfirm() {
       <template v-else-if="view === 'groups'">
         <header class="page-heading locations-heading group-heading"><div><p class="eyebrow">YOUR COLLECTIONS</p><h1>群組<span class="heading-spark">✦</span></h1><p class="subtext">像播放清單一樣，依自己的方式整理商品。</p></div><button class="primary-button" type="button" @click="openGroupForm()">＋ 新增群組</button></header>
         <section class="library-panel locations-panel">
-          <div class="section-top"><div><h2>所有群組 <span>{{ groups.length }}</span></h2><p>同一件商品可以收進多個群組</p></div></div>
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋群組</span><input v-model="groupQuery" type="search" placeholder="搜尋群組名稱或說明…" /></label></div>
           <div class="collection-results" aria-label="群組列表">
             <div v-if="!groupsLoading && groups.length" class="collection-caption"><span>{{ groupQuery ? `找到 ${visibleGroups.length} 個群組` : `已建立 ${groups.length} 個群組` }}</span><i aria-hidden="true"></i></div>

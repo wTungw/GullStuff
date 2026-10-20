@@ -129,14 +129,28 @@
 .brand-mark img{position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;object-fit:cover}
 .mobile-bar.is-editor .mobile-title>span{color:#1a2634}
 .collection-caption{display:none}
+.product-layout-switch{display:none}
 @media(min-width:641px){
   .library-panel{background:transparent;border:0;box-shadow:none;padding:0}
+  .library-panel .toolbar{flex-wrap:wrap}
+  .library-panel .search-wrap{min-width:180px}
+  .product-layout-switch{display:flex;align-items:center;gap:3px;margin-left:auto;padding:3px;border:1px solid #dfe3e8;border-radius:9px;background:#f8f9fb}
+  .product-layout-switch button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 11px;border:0;border-radius:6px;background:transparent;color:#667484;font-size:12px;font-weight:700}
+  .product-layout-switch button[aria-pressed="true"]{background:#244a76;color:#fff}
+  .product-layout-switch button:focus-visible{outline:2px solid #5e83ad;outline-offset:2px}
+  .product-layout-switch svg{width:17px;height:17px;flex:none}
   .product-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}
   .product-card:hover{transform:none;box-shadow:none}
   .product-card:hover .card-image{filter:brightness(.97)}
   .product-card:focus-visible{outline:3px solid #5e83ad;outline-offset:4px}
   .card-image{border-radius:15px}
   .card-body{padding:14px 4px 20px}
+  .product-grid.is-list{grid-template-columns:1fr;gap:0;padding-top:10px}
+  .product-grid.is-list .product-card{display:grid;grid-template-columns:76px minmax(0,1fr) 18px;align-items:center;gap:16px;padding:12px 3px;border-bottom:1px solid #e4e8ed}
+  .product-grid.is-list .card-image{width:76px;height:76px;aspect-ratio:1;border-radius:10px}
+  .product-grid.is-list .image-placeholder{font-size:35px}
+  .product-grid.is-list .card-body{min-width:0;padding:0;gap:5px}
+  .product-grid.is-list .card-arrow{position:static;align-self:center;font-size:24px}
 }
 @media(max-width:640px){
   .main-content{background:linear-gradient(180deg,#f8faff 0,#fff 230px)}
@@ -513,3 +527,5 @@
   .group-detail-mark svg{width:29px;height:29px}
   .detail-summary .product-groups{margin-top:3px}
 }
+.settings-item{position:relative;border-top:0;border-radius:11px;padding-top:13px}
+.settings-item::before{content:'';position:absolute;left:0;right:0;top:-11px;height:1px;background:#dadfe5;pointer-events:none}
