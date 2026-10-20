@@ -946,7 +946,7 @@ function closeRestoreConfirm() {
               </div>
               <div class="settings-table-export">
                 <h3>表格匯出</h3>
-                <p class="settings-intro">將商品、地點、群組、關聯及購買價格整理成 Excel 工作表。表格不含照片，也無法用於備份還原。</p>
+                <p class="settings-intro">將商品、地點與群組整理成 Excel 工作表，商品列會顯示所屬群組。表格不含照片、地點關聯與購買價格，也無法用於備份還原。</p>
                 <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleExportSpreadsheet">{{ backupBusy ? '處理中…' : '匯出 Excel 表格' }}</button>
               </div>
               <p v-if="backupFeedback" class="settings-feedback" role="status">{{ backupFeedback }}</p>

@@ -37,41 +37,34 @@ function worksheet(headers, rows, widths) {
 const sheetDefinitions = [
   {
     name: '商品',
-    headers: ['商品名稱', '品牌', '分類', '規格／型號', '備註', '商品 ID', '圖片 ID', '建立時間', '更新時間'],
-    widths: [28, 20, 16, 24, 42, 38, 38, 24, 24],
-    rows: ({ products }) => products.map(product => [product.name, product.brand, product.category, product.model, product.notes, product.id, product.imageReference, product.createdAt, product.updatedAt])
+    headers: ['商品名稱', '品牌', '分類', '規格／型號', '備註', '所屬群組', '建立時間', '更新時間'],
+    widths: [28, 20, 16, 24, 42, 32, 24, 24],
+    rows: ({ products, groups = [], groupProducts = [] }) => {
+      const groupNames = new Map(groups.map(group => [group.id, group.name]))
+      const namesByProduct = new Map()
+      for (const link of groupProducts) {
+        const name = groupNames.get(link.groupId)
+        if (!name) continue
+        if (!namesByProduct.has(link.productId)) namesByProduct.set(link.productId, new Set())
+        namesByProduct.get(link.productId).add(name)
+      }
+      return products.map(product => [
+        product.name, product.brand, product.category, product.model, product.notes,
+        [...(namesByProduct.get(product.id) ?? [])].join('、'), product.createdAt, product.updatedAt
+      ])
+    }
   },
   {
     name: '地點',
-    headers: ['地點名稱', '國家', '城市', '區域', '地址', '備註', '地點 ID', '建立時間', '更新時間'],
-    widths: [28, 16, 18, 18, 42, 42, 38, 24, 24],
-    rows: ({ locations }) => locations.map(location => [location.name, location.country, location.city, location.area, location.address, location.notes, location.id, location.createdAt, location.updatedAt])
-  },
-  {
-    name: '商品與地點',
-    headers: ['商品名稱', '地點名稱', '價格', '幣別', '價格備註', '商品 ID', '地點 ID', '關聯 ID', '建立時間', '更新時間'],
-    widths: [28, 28, 16, 12, 42, 38, 38, 38, 24, 24],
-    rows: ({ products, locations, locationProducts }) => {
-      const productNames = new Map(products.map(product => [product.id, product.name]))
-      const locationNames = new Map(locations.map(location => [location.id, location.name]))
-      return locationProducts.map(link => [productNames.get(link.productId) ?? '', locationNames.get(link.locationId) ?? '', link.price ?? '', link.currency, link.notes, link.productId, link.locationId, link.id, link.createdAt, link.updatedAt])
-    }
+    headers: ['地點名稱', '國家', '城市', '區域', '地址', '備註', '建立時間', '更新時間'],
+    widths: [28, 16, 18, 18, 42, 42, 24, 24],
+    rows: ({ locations }) => locations.map(location => [location.name, location.country, location.city, location.area, location.address, location.notes, location.createdAt, location.updatedAt])
   },
   {
     name: '群組',
-    headers: ['群組名稱', '圖示', '顏色', '說明', '群組 ID', '建立時間', '更新時間'],
-    widths: [28, 16, 16, 42, 38, 24, 24],
-    rows: ({ groups = [] }) => groups.map(group => [group.name, group.icon ?? 'folder', group.color ?? 'forest', group.notes, group.id, group.createdAt, group.updatedAt])
-  },
-  {
-    name: '群組與商品',
-    headers: ['群組名稱', '商品名稱', '順序', '群組 ID', '商品 ID', '關聯 ID', '加入時間'],
-    widths: [28, 28, 12, 38, 38, 38, 24],
-    rows: ({ products, groups = [], groupProducts = [] }) => {
-      const productNames = new Map(products.map(product => [product.id, product.name]))
-      const groupNames = new Map(groups.map(group => [group.id, group.name]))
-      return groupProducts.map(link => [groupNames.get(link.groupId) ?? '', productNames.get(link.productId) ?? '', link.position + 1, link.groupId, link.productId, link.id, link.createdAt])
-    }
+    headers: ['群組名稱', '說明'],
+    widths: [28, 42],
+    rows: ({ groups = [] }) => groups.map(group => [group.name, group.notes])
   }
 ]
 
@@ -90,12 +83,12 @@ export function buildSpreadsheet(dataset) {
 }
 
 export async function exportSpreadsheet() {
-  const [products, locations, locationProducts, groups, groupProducts] = await db.transaction('r', db.products, db.locations, db.locationProducts, db.groups, db.groupProducts, () => Promise.all([
-    db.products.toArray(), db.locations.toArray(), db.locationProducts.toArray(), db.groups.toArray(), db.groupProducts.toArray()
+  const [products, locations, groups, groupProducts] = await db.transaction('r', db.products, db.locations, db.groups, db.groupProducts, () => Promise.all([
+    db.products.toArray(), db.locations.toArray(), db.groups.toArray(), db.groupProducts.toArray()
   ]))
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   return {
-    bytes: buildSpreadsheet({ products, locations, locationProducts, groups, groupProducts }),
+    bytes: buildSpreadsheet({ products, locations, groups, groupProducts }),
     filename: `gullstuff-${stamp}.xlsx`,
     mime: MIME
   }
