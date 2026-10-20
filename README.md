@@ -30,7 +30,7 @@ npm run preview
 npm test
 ```
 
-可以將 `dist/` 部署到支援 HTTPS 的靜態網站。使用手機瀏覽器開啟後，可透過瀏覽器選單「加入主畫面」安裝。Service Worker 需要 HTTPS 或 localhost；首次載入需連網，之後快取完成才可離線開啟。部署路徑目前預設為網域根目錄 `/`。
+可以將 `dist/` 部署到支援 HTTPS 的靜態網站。使用手機瀏覽器開啟後，可透過瀏覽器選單「加入主畫面」安裝。Service Worker 需要 HTTPS 或 localhost；首次載入需連網，之後快取完成才可離線開啟。一般建置及 Android 封裝使用網域根目錄 `/`；若要放在 GitHub Pages 的 `/GullStuff/` 路徑，使用 `npm run build:pages`，並部署產生的 `dist/`。兩種建置會覆寫同一個 `dist/`，執行 `npm run cap:sync` 時會重新產生 Android 所需的根目錄版本。
 
 Android App 使用 Capacitor（`appId` 為 `com.gullstuff.app`，`webDir` 指向 `dist`），與網站共用介面與資料層，但各自有獨立的本機資料。同步 Android 專案與開啟 Android Studio：
 
