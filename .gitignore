@@ -3,6 +3,7 @@ dist/
 .vite/
 coverage/
 *.log
+.omo/
 
 # Capacitor Android build artifacts (also covered by android/.gitignore)
 android/.gradle/
