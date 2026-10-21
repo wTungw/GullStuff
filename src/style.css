@@ -454,6 +454,9 @@
   .collection-shell .main-content{padding-bottom:calc(62px + env(safe-area-inset-bottom))}
   .collection-shell .library-panel{padding-bottom:0}
   .collection-results{padding-bottom:12px}
+  .settings-shell .main-content{overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .settings-shell .settings-panel{flex:none;overflow:visible}
+  .settings-shell .settings-results{flex:none;overflow:visible}
   .location-detail-page{gap:0}
   .location-detail-overview{display:grid;grid-template-columns:92px minmax(0,1fr);gap:14px;margin:0 17px;padding:16px 0 25px;border:0;border-bottom:1px solid #e8ebee;border-radius:0;box-shadow:none}
   .location-detail-icon{width:92px;height:92px;border-radius:9px;font-size:47px}

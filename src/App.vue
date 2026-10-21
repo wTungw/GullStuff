@@ -782,7 +782,7 @@ function closeRestoreConfirm() {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'collection-shell': ['library', 'locations', 'groups', 'settings'].includes(view) }">
+  <div class="app-shell" :class="{ 'collection-shell': ['library', 'locations', 'groups', 'settings'].includes(view), 'settings-shell': view === 'settings' }">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="navigate('library')"><span class="brand-mark" aria-hidden="true"><img :src="brandLogo" alt="" /></span><span>GullStuff<small>把喜歡的，好好收著。</small></span></a>
       <div class="nav-label">WORKSPACE</div>
