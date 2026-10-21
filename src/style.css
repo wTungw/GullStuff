@@ -475,6 +475,11 @@
 .settings-results{max-width:720px}
 .settings-section h2{margin:0 0 12px;color:#253952;font-size:20px}
 .settings-intro{margin:0 0 20px;color:#525d6b;font-size:13px;line-height:1.6}
+.settings-storage{margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #e8ebee}
+.settings-storage .settings-intro{margin-bottom:10px}
+.storage-status-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.storage-status-row p{margin:0;color:#525d6b;font-size:13px}
+.storage-status-row button{flex:none}
 .settings-actions{display:flex;gap:10px;margin-bottom:16px}
 .settings-table-export{padding-top:20px;border-top:1px solid #e8ebee}
 .settings-table-export h3{margin:0 0 8px;color:#253952;font-size:16px}
@@ -488,6 +493,7 @@
   .settings-results{max-width:none;padding:18px 15px 20px}
   .settings-section h2{font-size:16px}
   .settings-intro{font-size:12px}
+  .storage-status-row{align-items:flex-start;flex-direction:column}
   .settings-actions{flex-direction:column}
   .settings-actions button{width:100%;justify-content:center}
   .settings-table-export button{width:100%;justify-content:center}

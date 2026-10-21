@@ -18,6 +18,8 @@ import { formatPurchasePrice } from './utils/purchase.js'
 import { exportBackup, validateBackup, restoreBackup } from './data/backup.js'
 import { exportSpreadsheet } from './data/spreadsheetExport.js'
 import { readBackupFile, saveBackupFile } from './platform/backupFile.js'
+import { getPersistentStorageStatus, requestPersistentStorage } from './platform/persistentStorage.js'
+import { Capacitor } from '@capacitor/core'
 
 const products = ref([])
 const { darkMode } = useTheme()
@@ -69,6 +71,14 @@ let linkedLocationTrigger = null
 const backupBusy = ref(false)
 const backupFeedback = ref('')
 const backupError = ref('')
+const persistentStorageStatus = ref('checking')
+const persistentStorageMessage = computed(() => ({
+  checking: '檢查中…',
+  granted: '已啟用持久儲存',
+  'not-granted': '瀏覽器尚未核准持久儲存',
+  unsupported: '此瀏覽器不支援持久儲存申請',
+  unavailable: '目前無法檢查儲存狀態',
+})[persistentStorageStatus.value])
 const restoreConfirmOpen = ref(false)
 const restoreWarnings = ref([])
 const pendingRestoreBytes = ref(null)
@@ -530,9 +540,16 @@ onUnmounted(() => {
 })
 watch(view, async () => {
   showImagePreview.value = false
+  if (view.value === 'settings' && !Capacitor.isNativePlatform()) {
+    persistentStorageStatus.value = await getPersistentStorageStatus()
+  }
   await nextTick()
   scrollToTop()
 })
+async function handleRequestPersistentStorage() {
+  persistentStorageStatus.value = 'checking'
+  persistentStorageStatus.value = await requestPersistentStorage()
+}
 watch(showImagePreview, async isOpen => {
   await nextTick()
   if (isOpen) imageCloseButton.value?.focus()
@@ -934,6 +951,14 @@ function closeRestoreConfirm() {
                 <span class="theme-setting-copy"><strong>深色模式</strong><small>使用藍色背景與白色文字</small></span>
                 <input v-model="darkMode" type="checkbox" role="switch" aria-label="深色模式" />
               </label>
+            </div>
+            <div v-if="!Capacitor.isNativePlatform()" class="settings-section settings-storage">
+              <h2>本機資料保護</h2>
+              <p class="settings-intro">持久儲存可降低瀏覽器自動清除資料的機率；手動清除網站資料仍會刪除收藏，請定期匯出備份。</p>
+              <div class="storage-status-row">
+                <p role="status">{{ persistentStorageMessage }}</p>
+                <button v-if="persistentStorageStatus === 'not-granted'" class="secondary-button" type="button" @click="handleRequestPersistentStorage">再次申請</button>
+              </div>
             </div>
             <div class="settings-section">
               <h2>備份與還原</h2>

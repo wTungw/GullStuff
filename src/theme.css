@@ -109,6 +109,7 @@
 :root[data-theme='dark'] .product-picker-copy small,
 :root[data-theme='dark'] .product-picker-message,
 :root[data-theme='dark'] .settings-intro,
+:root[data-theme='dark'] .storage-status-row p,
 :root[data-theme='dark'] .theme-setting-copy small,
 :root[data-theme='dark'] .dialog p{color:var(--dark-muted)}
 :root[data-theme='dark'] .primary-button,
@@ -178,6 +179,7 @@
 :root[data-theme='dark'] .linked-location-detail-fields>div,
 :root[data-theme='dark'] .detail-fields>div,
 :root[data-theme='dark'] .settings-appearance,
+:root[data-theme='dark'] .settings-storage,
 :root[data-theme='dark'] .settings-table-export,
 :root[data-theme='dark'] .location-product-picker,
 :root[data-theme='dark'] .group-order,
