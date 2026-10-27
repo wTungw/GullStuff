@@ -136,6 +136,28 @@
 :root[data-theme='dark'] .library-heading .desktop-add,
 :root[data-theme='dark'] .locations-heading .primary-button,
 :root[data-theme='dark'] .group-heading .primary-button{background:transparent;color:#fff;border:0}
+:root[data-theme='dark'] .share-import-dialog{border-color:var(--dark-border)}
+:root[data-theme='dark'] .share-dialog-icon{background:#345779;color:#fff}
+:root[data-theme='dark'] .share-dialog-eyebrow,:root[data-theme='dark'] .share-dialog-close{color:#b1c4db}
+:root[data-theme='dark'] .share-dialog-close:hover{background:var(--dark-raised);color:#fff}
+:root[data-theme='dark'] .share-dialog-description{color:var(--dark-muted)!important}
+:root[data-theme='dark'] .share-dialog-notice{background:#304f73;color:#d4e4f5}
+:root[data-theme='dark'] .share-dialog-notice strong{color:#fff}
+:root[data-theme='dark'] .share-import-counts span{background:var(--dark-bg);color:#afc2d8}
+:root[data-theme='dark'] .share-import-counts strong{color:#fff}
+:root[data-theme='dark'] .share-conflict{background:#1d3047;border-color:var(--dark-border)}
+:root[data-theme='dark'] .share-conflict legend,:root[data-theme='dark'] .share-choice{color:var(--dark-text)}
+:root[data-theme='dark'] .share-conflict legend span,:root[data-theme='dark'] .share-choice small{color:var(--dark-muted)}
+:root[data-theme='dark'] .share-choice{background:var(--dark-surface);border-color:var(--dark-border)}
+:root[data-theme='dark'] .share-choice.selected{background:#345779;border-color:#94b4d9;box-shadow:0 0 0 2px #94b4d92b}
+:root[data-theme='dark'] .share-choice-field{background:var(--dark-bg);color:var(--dark-text);border-color:var(--dark-border)}
+:root[data-theme='dark'] .share-merge-target{color:var(--dark-muted)!important}
+:root[data-theme='dark'] .share-dialog-footer{background:var(--dark-surface);border-color:var(--dark-border)}
+:root[data-theme='dark'] .share-dialog-footer>span{color:var(--dark-muted)}
+@media(max-width:640px){
+  :root[data-theme='dark'] .collection-heading-actions .secondary-button{background:transparent;color:#fff;border:0}
+  :root[data-theme='dark'] .collection-heading-actions .secondary-button:hover{background:transparent;color:#d9e6f5}
+}
 :root[data-theme='dark'] .group-add-button{background:var(--dark-raised)}
 :root[data-theme='dark'] .group-add-button:hover{background:#385d89}
 :root[data-theme='dark'] .search-wrap,
@@ -148,6 +170,10 @@
 :root[data-theme='dark'] .group-choice label>span,
 :root[data-theme='dark'] .photo-picker .upload-button{background:var(--dark-raised);color:#fff;border-color:var(--dark-border)}
 :root[data-theme='dark'] .search-wrap input{color:#fff}
+:root[data-theme='dark'] .suggestion-list{background:var(--dark-surface);border-color:var(--dark-border)}
+:root[data-theme='dark'] .suggestion-list button{color:var(--dark-text)}
+:root[data-theme='dark'] .suggestion-list button:hover,
+:root[data-theme='dark'] .suggestion-list button.active{background:var(--dark-raised)}
 :root[data-theme='dark'] input::placeholder,
 :root[data-theme='dark'] textarea::placeholder{color:#b9c9da;opacity:1}
 :root[data-theme='dark'] input[type='checkbox']{accent-color:#fff}
@@ -185,6 +211,7 @@
 :root[data-theme='dark'] .group-order,
 :root[data-theme='dark'] .group-detail-items,
 :root[data-theme='dark'] .toolbar{border-color:var(--dark-border)}
+:root[data-theme='dark'] .mobile-detail-actions button{color:var(--dark-text)}
 :root[data-theme='dark'] .card-image,
 :root[data-theme='dark'] .detail-photo,
 :root[data-theme='dark'] .location-pin,

@@ -37,7 +37,7 @@ export async function saveBackupFile(bytes, filename, mime) {
     const { uri } = await Filesystem.getUri({ path: filename, directory })
     // The system share sheet lets the user move the backup to Drive, email it
     // to themselves, or store it elsewhere.
-    await Share.share({ title: 'GullStuff 備份', url: uri })
+    await Share.share({ title: filename.startsWith('gullstuff-share-') ? 'GullStuff 分享資料' : 'GullStuff 備份', url: uri })
     return { shared: true }
   } catch {
     // Any native failure (missing plugin, denied permission) degrades to the

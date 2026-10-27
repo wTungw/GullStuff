@@ -2,12 +2,14 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import ProductForm from './components/ProductForm.vue'
+import SuggestionField from './components/SuggestionField.vue'
 import ProductPickerOption from './components/ProductPickerOption.vue'
 import LocationLinkPicker from './components/LocationLinkPicker.vue'
 import LinkedLocationDetail from './components/LinkedLocationDetail.vue'
 import LocationDetail from './components/LocationDetail.vue'
 import GroupProductRow from './components/GroupProductRow.vue'
 import GroupIcon from './components/GroupIcon.vue'
+import TransferIcon from './components/TransferIcon.vue'
 import brandLogo from './assets/gullstuff-logo-original.png'
 import { useTheme } from './composables/useTheme.js'
 import { deleteProduct, filterProducts, listProducts, saveProduct } from './data/products.js'
@@ -15,7 +17,8 @@ import { deleteLocation, linkProductToLocation, listLocations, listLocationsForP
 import { GROUP_COLORS, GROUP_ICONS, addProductToGroup, deleteGroup, groupAppearance, listGroupIdsForProduct, listGroups, listProductsForGroup, removeProductFromGroup, saveGroup } from './data/groups.js'
 import { useImageUrl } from './composables/useImageUrl.js'
 import { formatPurchasePrice } from './utils/purchase.js'
-import { exportBackup, validateBackup, restoreBackup } from './data/backup.js'
+import { exportBackup, exportShare, validateBackup, validateShare, restoreBackup, SHARE_FORMAT } from './data/backup.js'
+import { importBackupAdditive, importShare, previewBackupAdditiveImport, previewShareImport } from './data/share.js'
 import { exportSpreadsheet } from './data/spreadsheetExport.js'
 import { readBackupFile, saveBackupFile } from './platform/backupFile.js'
 import { getPersistentStorageStatus, requestPersistentStorage } from './platform/persistentStorage.js'
@@ -71,6 +74,17 @@ let linkedLocationTrigger = null
 const backupBusy = ref(false)
 const backupFeedback = ref('')
 const backupError = ref('')
+const shareError = ref('')
+const shareConfirmOpen = ref(false)
+const sharePreview = ref(null)
+const pendingShareBytes = ref(null)
+const additiveImportFormat = ref('share')
+const shareResolutions = ref({})
+const shareChoicesReady = computed(() => (sharePreview.value?.conflicts ?? []).every(conflict => {
+  const choice = shareResolutions.value[`${conflict.type}:${conflict.sourceId}`]
+  return choice?.action === 'merge' ? Boolean(choice.existingId)
+    : choice?.action === 'rename' && Boolean(choice.name?.trim())
+}))
 const persistentStorageStatus = ref('checking')
 const persistentStorageMessage = computed(() => ({
   checking: '檢查中…',
@@ -80,6 +94,7 @@ const persistentStorageMessage = computed(() => ({
   unavailable: '目前無法檢查儲存狀態',
 })[persistentStorageStatus.value])
 const restoreConfirmOpen = ref(false)
+const backupModeOpen = ref(false)
 const restoreWarnings = ref([])
 const pendingRestoreBytes = ref(null)
 const restoreCounts = ref(null)
@@ -128,13 +143,22 @@ const groupPickerOpen = ref(false)
 const groupPickerError = ref('')
 const groupPickerBusy = ref(false)
 const productGroupIds = ref([])
-const categories = computed(() => [...new Set(products.value.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
+function fieldOptions(records, field) {
+  return [...new Set(records.map(record => record[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'))
+}
+const categories = computed(() => fieldOptions(products.value, 'category'))
+const brands = computed(() => fieldOptions(products.value, 'brand'))
+const productNames = computed(() => fieldOptions(products.value, 'name'))
+const models = computed(() => fieldOptions(products.value, 'model'))
 const visible = computed(() => filterProducts(products.value, query.value, category.value))
 const productChoices = computed(() => {
   const needle = locationProductQuery.value.trim().toLocaleLowerCase('zh-TW')
   return needle ? products.value.filter(product => [product.name, product.brand, product.category].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle))) : products.value
 })
-const locationCities = computed(() => [...new Set(locations.value.map(location => location.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
+const locationCities = computed(() => fieldOptions(locations.value, 'city'))
+const locationFieldOptions = computed(() => Object.fromEntries(
+  ['name', 'city', 'address', 'country', 'area'].map(field => [field, fieldOptions(locations.value, field)])
+))
 const visibleLocations = computed(() => {
   const needle = locationQuery.value.trim().toLocaleLowerCase('zh-TW')
   return locations.value.filter(location =>
@@ -150,6 +174,7 @@ const groupProductChoices = computed(() => {
   const needle = groupProductQuery.value.trim().toLocaleLowerCase('zh-TW')
   return products.value.filter(product => !needle || [product.name, product.brand, product.category].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle)))
 })
+const groupNames = computed(() => fieldOptions(groups.value, 'name'))
 const detailImage = useImageUrl(computed(() => view.value === 'detail' ? selected.value?.imageReference : null))
 
 async function refresh() {
@@ -317,6 +342,9 @@ async function openLocationForm(location = null, preselectedProductId = null, in
   locationLinksFailed.value = false
   locationError.value = ''
   view.value = 'location-form'
+  listLocations().then(result => {
+    if (requestId === locationFormRequest && view.value === 'location-form') locations.value = result
+  }).catch(() => { /* suggestions remain unavailable */ })
   await nextTick()
   locationNameInput.value?.focus()
   if (location) {
@@ -421,6 +449,9 @@ async function openGroupForm(group = null, productId = null) {
   groupFormLinksLoading.value = Boolean(group)
   groupPickerOpen.value = false
   view.value = 'group-form'
+  listGroups().then(result => {
+    if (requestId === groupFormRequest && view.value === 'group-form') groups.value = result
+  }).catch(() => { /* suggestions remain unavailable */ })
   await nextTick()
   groupNameInput.value?.focus()
   if (group) {
@@ -727,6 +758,77 @@ async function handleExportSpreadsheet() {
     backupBusy.value = false
   }
 }
+async function handleExportShare(type, id) {
+  backupBusy.value = true
+  error.value = ''
+  try {
+    const { bytes, filename } = await exportShare({ type, id })
+    await saveBackupFile(bytes, filename, 'application/zip')
+    feedback.value = '分享檔已匯出。'
+  } catch (cause) {
+    error.value = cause.message || '匯出分享檔失敗，請重試。'
+  }
+  finally { backupBusy.value = false }
+}
+async function handleImportShare() {
+  backupBusy.value = true
+  error.value = ''
+  try {
+    const file = await readBackupFile()
+    if (!file) return
+    const preview = await previewShareImport(file.bytes)
+    pendingShareBytes.value = file.bytes
+    sharePreview.value = preview
+    shareResolutions.value = {}
+    additiveImportFormat.value = 'share'
+    shareConfirmOpen.value = true
+  } catch (cause) { error.value = cause.message || '無法讀取分享檔。' }
+  finally { backupBusy.value = false }
+}
+async function handleConfirmShareImport() {
+  if (!pendingShareBytes.value) return
+  backupBusy.value = true
+  shareError.value = ''
+  try {
+    const result = additiveImportFormat.value === 'backup'
+      ? await importBackupAdditive(pendingShareBytes.value, { resolutions: shareResolutions.value })
+      : await importShare(pendingShareBytes.value, { resolutions: shareResolutions.value })
+    await Promise.all([refresh(), refreshLocations(), refreshGroups()])
+    shareConfirmOpen.value = false
+    sharePreview.value = null
+    pendingShareBytes.value = null
+    shareResolutions.value = {}
+    if (additiveImportFormat.value === 'backup') {
+      restoreWarnings.value = []
+      restoreCounts.value = null
+    }
+    const added = result.added
+    const merged = result.merged
+    const message = `匯入完成：新增商品 ${added.products} 件、地點 ${added.locations} 個、群組 ${added.groups} 個；合併 ${merged.products + merged.locations + merged.groups} 筆。`
+    if (additiveImportFormat.value === 'backup') setBackupFeedback(message)
+    else feedback.value = message
+  } catch (cause) { shareError.value = cause.message || '新增資料失敗，請重試。' }
+  finally { backupBusy.value = false }
+}
+function closeShareConfirm() {
+  if (backupBusy.value) return
+  shareConfirmOpen.value = false
+  sharePreview.value = null
+  pendingShareBytes.value = null
+  shareResolutions.value = {}
+  shareError.value = ''
+  if (additiveImportFormat.value === 'backup') {
+    restoreWarnings.value = []
+    restoreCounts.value = null
+  }
+}
+function setShareResolution(conflict, action) {
+  const key = `${conflict.type}:${conflict.sourceId}`
+  shareResolutions.value = { ...shareResolutions.value, [key]: action === 'merge'
+    ? { action, existingId: conflict.matches[0].id }
+    : { action, name: '' } }
+  shareError.value = ''
+}
 async function handleImportBackup() {
   backupBusy.value = true
   backupError.value = ''
@@ -735,6 +837,20 @@ async function handleImportBackup() {
     const result = await readBackupFile()
     if (!result) return
     const { bytes } = result
+    const shareValidation = validateShare(bytes)
+    if (shareValidation.manifest?.format === SHARE_FORMAT) {
+      if (!shareValidation.ok) {
+        backupError.value = shareValidation.errors.slice(0, 3).join(' ')
+        return
+      }
+      const preview = await previewShareImport(bytes)
+      pendingShareBytes.value = bytes
+      sharePreview.value = preview
+      shareResolutions.value = {}
+      additiveImportFormat.value = 'share'
+      shareConfirmOpen.value = true
+      return
+    }
     const validation = await validateBackup(bytes)
     if (!validation.ok) {
       backupError.value = validation.errors.slice(0, 3).join(' ') + (validation.errors.length > 3 ? '……' : '')
@@ -743,12 +859,40 @@ async function handleImportBackup() {
     pendingRestoreBytes.value = bytes
     restoreWarnings.value = validation.warnings || []
     restoreCounts.value = validation.manifest?.counts
-    restoreConfirmOpen.value = true
+    backupModeOpen.value = true
   } catch (cause) {
     backupError.value = cause.message || '匯入備份失敗，請重試。'
   } finally {
     backupBusy.value = false
   }
+}
+async function chooseBackupImportMode(mode) {
+  if (!pendingRestoreBytes.value) return
+  if (mode === 'replace') {
+    backupModeOpen.value = false
+    restoreConfirmOpen.value = true
+    return
+  }
+  backupBusy.value = true
+  backupError.value = ''
+  try {
+    const preview = await previewBackupAdditiveImport(pendingRestoreBytes.value)
+    pendingShareBytes.value = pendingRestoreBytes.value
+    pendingRestoreBytes.value = null
+    sharePreview.value = preview
+    shareResolutions.value = {}
+    additiveImportFormat.value = 'backup'
+    backupModeOpen.value = false
+    shareConfirmOpen.value = true
+  } catch (cause) { backupError.value = cause.message || '無法預覽備份資料。' }
+  finally { backupBusy.value = false }
+}
+function closeBackupMode() {
+  if (backupBusy.value) return
+  backupModeOpen.value = false
+  pendingRestoreBytes.value = null
+  restoreWarnings.value = []
+  restoreCounts.value = null
 }
 async function handleConfirmRestore() {
   if (!pendingRestoreBytes.value) return
@@ -808,16 +952,17 @@ function closeRestoreConfirm() {
         <button v-else-if="view === 'form'" class="mobile-save" type="submit" form="product-form" :disabled="saving">{{ saving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'location-form'" class="mobile-save" type="submit" form="location-form" :disabled="locationSaving || locationLinksLoading || locationLinksFailed || loading || Boolean(error)">{{ locationSaving ? '儲存中' : '儲存' }}</button>
         <button v-else-if="view === 'group-form'" class="mobile-save" type="submit" form="group-form" :disabled="groupSaving || loading || groupFormLinksLoading || groupFormLinksFailed || Boolean(error)">{{ groupSaving ? '儲存中' : '儲存' }}</button>
-        <button v-else-if="view === 'detail'" class="mobile-edit" type="button" @click="startEdit" aria-label="編輯商品">✎</button>
-        <button v-else-if="view === 'location-detail'" class="mobile-edit" type="button" @click="openLocationForm(locationDetail)" aria-label="編輯地點">✎</button>
-        <button v-else-if="view === 'group-detail'" class="mobile-edit" type="button" @click="openGroupForm(groupDetail)" aria-label="編輯群組">✎</button>
+        <div v-else-if="['detail', 'location-detail', 'group-detail'].includes(view)" class="mobile-detail-actions">
+          <button type="button" class="share-icon-button" :disabled="backupBusy" :aria-label="`分享${view === 'detail' ? '商品' : view === 'location-detail' ? '地點' : '群組'}`" @click="handleExportShare(view === 'detail' ? 'product' : view === 'location-detail' ? 'location' : 'group', view === 'detail' ? selected?.id : view === 'location-detail' ? locationDetail?.id : groupDetail?.id)"><TransferIcon kind="share" /></button>
+          <button type="button" :aria-label="`編輯${view === 'detail' ? '商品' : view === 'location-detail' ? '地點' : '群組'}`" @click="view === 'detail' ? startEdit() : view === 'location-detail' ? openLocationForm(locationDetail) : openGroupForm(groupDetail)">✎</button>
+        </div>
         <span v-else class="mobile-bar-spacer"></span>
       </div>
       <div v-if="feedback" class="toast" role="status">{{ feedback }} <button @click="feedback = ''" aria-label="關閉訊息">×</button></div>
       <div v-if="error" class="global-error" role="alert">{{ error }} <button @click="error = ''" aria-label="關閉錯誤">×</button></div>
 
       <template v-if="view === 'library'">
-        <header class="page-heading library-heading"><div><p class="eyebrow">YOUR PERSONAL COLLECTION</p><h1>商品收藏<span class="heading-spark">✦</span></h1><p class="subtext">把想買的、喜歡的，先記在這裡。</p></div><button class="primary-button desktop-add" @click="startCreate">＋ 新增商品</button></header>
+        <header class="page-heading library-heading"><div><p class="eyebrow">YOUR PERSONAL COLLECTION</p><h1>商品收藏<span class="heading-spark">✦</span></h1><p class="subtext">把想買的、喜歡的，先記在這裡。</p></div><div class="collection-heading-actions"><button class="secondary-button import-button" type="button" aria-label="匯入分享檔" :disabled="backupBusy" @click="handleImportShare"><TransferIcon kind="import" />匯入</button><button class="primary-button desktop-add" type="button" @click="startCreate">＋ 新增商品</button></div></header>
         <section class="library-panel">
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋商品名稱</span><input v-model="query" type="search" placeholder="搜尋商品名稱…" /></label><label class="filter-wrap"><span class="sr-only">依分類篩選</span><select v-model="category"><option value="">所有分類</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select></label><div class="product-layout-switch" role="group" aria-label="商品顯示方式"><button type="button" :aria-pressed="productLayout === 'list'" @click="productLayout = 'list'"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 5h2m3 0h9M3 10h2m3 0h9M3 15h2m3 0h9" stroke-linecap="round"/></svg>清單</button><button type="button" :aria-pressed="productLayout === 'grid'" @click="productLayout = 'grid'"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>網格</button></div></div>
           <div class="category-chips" aria-label="依分類篩選商品"><button type="button" :class="{ active: !category }" @click="category = ''">全部</button><button v-for="item in categories" :key="item" type="button" :class="{ active: category === item }" @click="category = item">{{ item }}</button></div>
@@ -833,7 +978,7 @@ function closeRestoreConfirm() {
       </template>
 
       <template v-else-if="view === 'locations'">
-        <header class="page-heading locations-heading"><div><p class="eyebrow">PLACES TO REMEMBER</p><h1>地點列表<span class="heading-spark">✦</span></h1><p class="subtext">把想逛的店和去過的地方，收在一起。</p></div><button class="primary-button" type="button" @click="openLocationForm()">＋ 新增地點</button></header>
+        <header class="page-heading locations-heading"><div><p class="eyebrow">PLACES TO REMEMBER</p><h1>地點列表<span class="heading-spark">✦</span></h1><p class="subtext">把想逛的店和去過的地方，收在一起。</p></div><div class="collection-heading-actions"><button class="secondary-button import-button" type="button" aria-label="匯入分享檔" :disabled="backupBusy" @click="handleImportShare"><TransferIcon kind="import" />匯入</button><button class="primary-button" type="button" @click="openLocationForm()">＋ 新增地點</button></div></header>
         <section class="library-panel locations-panel">
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋地點</span><input v-model="locationQuery" type="search" placeholder="搜尋地點名稱、地區或地址…" /></label><label class="filter-wrap"><span class="sr-only">依地區篩選</span><select v-model="locationCity"><option value="">所有地區</option><option v-for="city in locationCities" :key="city" :value="city">{{ city }}</option></select></label></div>
           <div class="category-chips" aria-label="依地區篩選地點"><button type="button" :class="{ active: !locationCity }" @click="locationCity = ''">全部</button><button v-for="city in locationCities" :key="city" type="button" :class="{ active: locationCity === city }" @click="locationCity = city">{{ city }}</button></div>
@@ -849,7 +994,7 @@ function closeRestoreConfirm() {
       </template>
 
       <template v-else-if="view === 'groups'">
-        <header class="page-heading locations-heading group-heading"><div><p class="eyebrow">YOUR COLLECTIONS</p><h1>群組<span class="heading-spark">✦</span></h1><p class="subtext">像播放清單一樣，依自己的方式整理商品。</p></div><button class="primary-button" type="button" @click="openGroupForm()">＋ 新增群組</button></header>
+        <header class="page-heading locations-heading group-heading"><div><p class="eyebrow">YOUR COLLECTIONS</p><h1>群組<span class="heading-spark">✦</span></h1><p class="subtext">像播放清單一樣，依自己的方式整理商品。</p></div><div class="collection-heading-actions"><button class="secondary-button import-button" type="button" aria-label="匯入分享檔" :disabled="backupBusy" @click="handleImportShare"><TransferIcon kind="import" />匯入</button><button class="primary-button" type="button" @click="openGroupForm()">＋ 新增群組</button></div></header>
         <section class="library-panel locations-panel">
           <div class="toolbar"><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">搜尋群組</span><input v-model="groupQuery" type="search" placeholder="搜尋群組名稱或說明…" /></label></div>
           <div class="collection-results" aria-label="群組列表">
@@ -864,7 +1009,7 @@ function closeRestoreConfirm() {
       </template>
 
       <template v-else-if="view === 'group-detail' && groupDetail">
-        <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('groups')">← 返回群組</button><div class="heading-actions"><button class="secondary-button" type="button" @click="openGroupForm(groupDetail)">編輯群組</button></div></header>
+        <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('groups')">← 返回群組</button><div class="heading-actions"><button class="secondary-button share-icon-button" type="button" aria-label="分享群組" title="分享群組" :disabled="backupBusy" @click="handleExportShare('group', groupDetail.id)"><TransferIcon kind="share" /></button><button class="secondary-button" type="button" @click="openGroupForm(groupDetail)">編輯群組</button></div></header>
         <div class="group-detail-page"><section class="group-detail-summary panel"><span class="group-detail-mark" :style="groupAppearance(groupDetail)" aria-hidden="true"><GroupIcon :icon="groupDetail.icon" /></span><div><p class="eyebrow">MY GROUP</p><h1>{{ groupDetail.name }}</h1><p v-if="groupDetail.notes" class="notes">{{ groupDetail.notes }}</p></div></section>
           <section class="group-detail-items panel" aria-labelledby="group-products-title"><div class="group-detail-items-heading"><h2 id="group-products-title">商品 <span v-if="!groupDetailLoading && !groupDetailError">{{ groupDetailProducts.length }}</span></h2><button type="button" @click="openGroupForm(groupDetail)">管理商品</button></div>
             <p v-if="groupDetailLoading" class="location-detail-message" role="status">正在載入商品…</p><p v-else-if="groupDetailError" class="location-detail-message" role="alert">無法讀取群組商品。<button class="text-button" type="button" @click="refreshGroupDetailProducts">重試</button></p><p v-else-if="!groupDetailProducts.length" class="location-detail-message">群組裡還沒有商品，點「管理商品」即可加入。</p>
@@ -873,12 +1018,12 @@ function closeRestoreConfirm() {
       </template>
 
       <template v-else-if="view === 'location-detail' && locationDetail">
-        <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('locations')">← 返回地點列表</button><div class="heading-actions"><button class="secondary-button" type="button" @click="openLocationForm(locationDetail)">編輯地點</button></div></header>
+        <header class="page-heading detail-heading"><button class="back-link" type="button" @click="navigate('locations')">← 返回地點列表</button><div class="heading-actions"><button class="secondary-button share-icon-button" type="button" aria-label="分享地點" title="分享地點" :disabled="backupBusy" @click="handleExportShare('location', locationDetail.id)"><TransferIcon kind="share" /></button><button class="secondary-button" type="button" @click="openLocationForm(locationDetail)">編輯地點</button></div></header>
         <LocationDetail :location="locationDetail" :products="locationDetailProducts" :loading="locationDetailLoading" :error="locationDetailError" @retry="refreshLocationDetailProducts" @select-product="openProductFromLocation" />
       </template>
 
       <template v-else-if="view === 'detail' && selected">
-        <header class="page-heading detail-heading"><button class="back-link" @click="returnFromProductDetail">← 返回{{ productReturnGroupId ? '群組詳情' : productReturnLocationId ? '地點詳情' : '商品收藏' }}</button><div class="heading-actions"><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
+        <header class="page-heading detail-heading"><button class="back-link" @click="returnFromProductDetail">← 返回{{ productReturnGroupId ? '群組詳情' : productReturnLocationId ? '地點詳情' : '商品收藏' }}</button><div class="heading-actions"><button class="secondary-button share-icon-button" type="button" aria-label="分享商品" title="分享商品" :disabled="backupBusy" @click="handleExportShare('product', selected.id)"><TransferIcon kind="share" /></button><button class="secondary-button" @click="startEdit">編輯商品</button><button class="danger-button" @click="showDelete = true">刪除</button></div></header>
         <div class="detail-grid"><button ref="imageTrigger" class="detail-photo" type="button" :disabled="!detailImage" :aria-label="detailImage ? `放大檢視 ${selected.name} 的照片` : '尚無商品照片'" @click="showImagePreview = true"><img v-if="detailImage" :src="detailImage" :alt="selected.name" /><span v-else aria-hidden="true">✦</span></button><div class="detail-info panel"><div class="detail-summary"><p class="eyebrow">SAVED ITEM</p><h2>{{ selected.name }}</h2><p class="detail-date">收藏於 {{ new Date(selected.createdAt).toLocaleDateString('zh-TW') }}</p><div class="product-groups" :class="{ 'has-groups': productGroupIds.length }" role="group" aria-label="所屬群組"><div v-if="productGroupIds.length" class="group-tags"><span v-for="group in groups.filter(item => productGroupIds.includes(item.id))" :key="group.id" :style="groupAppearance(group)">{{ group.name }}</span></div><button class="group-add-button" type="button" :aria-label="productGroupIds.length ? '加入或管理群組' : '加入群組'" :title="productGroupIds.length ? '加入或管理群組' : '加入群組'" @click="openGroupPicker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg><span v-if="!productGroupIds.length">加入群組</span></button></div></div><div class="detail-fields"><div v-if="selected.brand"><small>品牌</small><span>{{ selected.brand }}</span></div><div v-if="selected.category"><small>分類</small><span>{{ selected.category }}</span></div><div v-if="selected.model"><small>型號 / 規格</small><span>{{ selected.model }}</span></div><div v-if="selected.notes"><small>備註</small><p class="notes">{{ selected.notes }}</p></div></div><div v-if="![selected.brand, selected.category, selected.model, selected.notes].some(Boolean)" class="detail-empty">還沒有其他資料，隨時可以編輯補上。</div><button class="mobile-detail-delete" type="button" @click="showDelete = true">刪除商品</button></div></div>
         <section class="product-locations panel" aria-labelledby="product-locations-title">
           <div class="product-locations-heading"><div><p class="eyebrow">WHERE TO FIND IT</p><h3 id="product-locations-title">可購買地點 <span v-if="!linkedLocationsLoading && !linkedLocationsError">{{ linkedLocations.length }}</span></h3></div><button ref="locationPickerTrigger" class="product-location-add" type="button" @click="openLocationPicker">＋ 連結地點</button></div>
@@ -889,18 +1034,18 @@ function closeRestoreConfirm() {
         </section>
       </template>
 
-      <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" @save="handleSave" @cancel="goBack" />
+      <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" :names="productNames" :brands="brands" :categories="categories" :models="models" @save="handleSave" @cancel="goBack" />
 
       <div v-else-if="view === 'location-form'" class="editor-shell location-editor">
         <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeLocationForm">← 返回</button><p class="eyebrow">MY PLACES / {{ selectedLocation ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedLocation ? '編輯地點' : '新增地點' }}</h1><p class="subtext">先記下地點名稱，再選擇可以在這裡買到的商品。</p></div></div>
         <form id="location-form" class="editor-grid" @submit.prevent="handleLocationSave">
           <div class="form-main panel">
             <div class="section-title"><span class="step">01</span><div><h2>地點資料</h2><p>只有名稱是必填，其餘可以稍後補上。</p></div></div>
-            <label class="field"><span>地點名稱 <em>必填</em></span><input ref="locationNameInput" v-model="locationDraft.name" type="text" required maxlength="150" placeholder="例如：松本清 新宿東口店" /></label>
-            <label class="field">城市／地區（選填）<input v-model="locationDraft.city" type="text" maxlength="100" placeholder="例如：東京、新宿或台北" /></label>
-            <label class="field">地址<input v-model="locationDraft.address" type="text" maxlength="300" placeholder="例如：新宿 3-24-1" /></label>
+            <SuggestionField ref="locationNameInput" v-model="locationDraft.name" label="地點名稱" required :maxlength="150" placeholder="例如：松本清 新宿東口店" :options="locationFieldOptions.name" />
+            <SuggestionField v-model="locationDraft.city" label="城市／地區（選填）" :maxlength="100" placeholder="例如：東京、新宿或台北" :options="locationFieldOptions.city" />
+            <SuggestionField v-model="locationDraft.address" label="地址" :maxlength="300" placeholder="例如：新宿 3-24-1" :options="locationFieldOptions.address" />
             <button class="location-extra-toggle" type="button" :aria-expanded="locationExtraOpen" aria-controls="location-extra-fields" @click="locationExtraOpen = !locationExtraOpen">{{ locationExtraOpen ? '收起位置資訊' : '更多位置資訊（選填）' }}<span aria-hidden="true">{{ locationExtraOpen ? '⌃' : '⌄' }}</span></button>
-            <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><label class="field">國家<input v-model="locationDraft.country" type="text" maxlength="100" placeholder="例如：日本" /></label><label class="field">區域<input v-model="locationDraft.area" type="text" maxlength="100" placeholder="例如：新宿區" /></label></div>
+            <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><SuggestionField v-model="locationDraft.country" label="國家" :maxlength="100" placeholder="例如：日本" :options="locationFieldOptions.country" /><SuggestionField v-model="locationDraft.area" label="區域" :maxlength="100" placeholder="例如：新宿區" :options="locationFieldOptions.area" /></div>
             <label class="field">備註<textarea v-model="locationDraft.notes" maxlength="1000" rows="3" placeholder="營業時間、想買的東西…"></textarea></label>
           </div>
           <div class="form-side">
@@ -923,7 +1068,7 @@ function closeRestoreConfirm() {
       <div v-else-if="view === 'group-form'" class="editor-shell group-editor">
         <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeGroupForm">← 返回</button><p class="eyebrow">MY GROUPS / {{ selectedGroup ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedGroup ? '編輯群組' : '新增群組' }}</h1><p class="subtext">幫清單取個名字，再挑選要放進去的商品。</p></div></div>
         <form id="group-form" class="editor-grid" @submit.prevent="handleGroupSave">
-          <div class="form-main panel"><div class="section-title"><span class="step">01</span><div><h2>群組資訊</h2><p>只有名稱是必填。</p></div></div><label class="field"><span>群組名稱 <em>必填</em></span><input ref="groupNameInput" v-model="groupDraft.name" maxlength="150" required placeholder="例如：東京購物清單" /></label><fieldset class="group-choice"><legend>圖示</legend><div class="group-icon-options"><label v-for="option in GROUP_ICONS" :key="option.id"><input v-model="groupDraft.icon" type="radio" name="group-icon" :value="option.id" :aria-label="option.label" /><span><GroupIcon :icon="option.id" /></span></label></div></fieldset><fieldset class="group-choice"><legend>顏色</legend><div class="group-color-options"><label v-for="option in GROUP_COLORS" :key="option.id" :title="option.label"><input v-model="groupDraft.color" type="radio" name="group-color" :value="option.id" /><span :style="groupAppearance({ color: option.id })"><i aria-hidden="true"></i><small>{{ option.label }}</small></span></label></div></fieldset><label class="field">說明<textarea v-model="groupDraft.notes" maxlength="1000" rows="4" placeholder="這個群組想收藏什麼？"></textarea></label></div>
+          <div class="form-main panel"><div class="section-title"><span class="step">01</span><div><h2>群組資訊</h2><p>只有名稱是必填。</p></div></div><SuggestionField ref="groupNameInput" v-model="groupDraft.name" label="群組名稱" required :maxlength="150" placeholder="例如：東京購物清單" :options="groupNames" /><fieldset class="group-choice"><legend>圖示</legend><div class="group-icon-options"><label v-for="option in GROUP_ICONS" :key="option.id"><input v-model="groupDraft.icon" type="radio" name="group-icon" :value="option.id" :aria-label="option.label" /><span><GroupIcon :icon="option.id" /></span></label></div></fieldset><fieldset class="group-choice"><legend>顏色</legend><div class="group-color-options"><label v-for="option in GROUP_COLORS" :key="option.id" :title="option.label"><input v-model="groupDraft.color" type="radio" name="group-color" :value="option.id" /><span :style="groupAppearance({ color: option.id })"><i aria-hidden="true"></i><small>{{ option.label }}</small></span></label></div></fieldset><label class="field">說明<textarea v-model="groupDraft.notes" maxlength="1000" rows="4" placeholder="這個群組想收藏什麼？"></textarea></label></div>
           <div class="form-side">
             <section class="location-product-picker panel" aria-labelledby="group-form-products-title">
               <div class="section-title"><span class="step">02</span><div><h2 id="group-form-products-title">選擇商品</h2><p>同一件商品也能加入其他群組。</p></div></div>
@@ -962,10 +1107,10 @@ function closeRestoreConfirm() {
             </div>
             <div class="settings-section">
               <h2>備份與還原</h2>
-              <p class="settings-intro">備份包含所有商品、地點、群組、關聯與照片，匯出為單一檔案。還原會取代這台裝置目前的資料。</p>
+              <p class="settings-intro">備份包含所有商品、地點、群組、關聯與照片。匯入備份可選擇覆蓋或新增／合併；單一商品、地點或群組的分享檔也能從這裡匯入。</p>
               <div class="settings-actions">
                 <button class="primary-button" type="button" :disabled="backupBusy" @click="handleExportBackup">{{ backupBusy ? '匯出中…' : '匯出備份' }}</button>
-                <button class="secondary-button" type="button" :disabled="backupBusy" @click="handleImportBackup">{{ backupBusy ? '處理中…' : '匯入備份' }}</button>
+                <button class="secondary-button import-button" type="button" :disabled="backupBusy" @click="handleImportBackup"><TransferIcon kind="import" />{{ backupBusy ? '處理中…' : '匯入檔案' }}</button>
               </div>
               <div class="settings-table-export">
                 <h3>表格匯出</h3>
@@ -989,6 +1134,35 @@ function closeRestoreConfirm() {
     <div v-if="showGroupDelete" class="dialog-backdrop" @click.self="!groupDeleting && (showGroupDelete = false)"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="group-delete-title"><span class="dialog-icon">!</span><h2 id="group-delete-title">刪除這個群組？</h2><p>「{{ selectedGroup?.name }}」與群組中的商品關聯會刪除，商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="groupDeleting" @click="showGroupDelete = false">取消</button><button class="danger-fill" type="button" :disabled="groupDeleting" @click="confirmGroupDelete">{{ groupDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showLocationDelete" class="dialog-backdrop" @click.self="showLocationDelete = false"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="location-delete-title" aria-describedby="location-delete-desc"><span class="dialog-icon">!</span><h2 id="location-delete-title">刪除這個地點？</h2><p id="location-delete-desc">「{{ selectedLocation?.name }}」及其商品關聯會從這台裝置永久刪除，無法復原。商品本身會保留。</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="locationDeleting" @click="showLocationDelete = false">取消</button><button class="danger-fill" type="button" :disabled="locationDeleting" @click="confirmLocationDelete">{{ locationDeleting ? '刪除中…' : '確認刪除' }}</button></div></div></div>
     <div v-if="showImagePreview && detailImage" class="image-preview" role="dialog" aria-modal="true" :aria-label="`${selected?.name} 的照片`" @click.self="showImagePreview = false"><button ref="imageCloseButton" class="image-preview-close" type="button" aria-label="關閉照片" @click="showImagePreview = false">×</button><img :src="detailImage" :alt="selected?.name" /></div>
+    <div v-if="backupModeOpen" class="dialog-backdrop" @click.self="closeBackupMode"><div class="dialog backup-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-mode-title" aria-describedby="backup-mode-desc"><h2 id="backup-mode-title">如何匯入備份？</h2><p id="backup-mode-desc">備份包含商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、群組 {{ restoreCounts?.groups ?? 0 }} 個。請選擇匯入方式。</p><div class="backup-mode-options"><button class="secondary-button" type="button" :disabled="backupBusy" @click="chooseBackupImportMode('add')"><strong>新增／合併</strong><small>保留本機資料；同名項目逐筆選擇重新命名或合併。</small></button><button class="danger-button" type="button" :disabled="backupBusy" @click="chooseBackupImportMode('replace')"><strong>覆蓋原有資料</strong><small>以備份取代本機資料，下一步會再次確認。</small></button></div><p v-if="backupError" class="form-error" role="alert">{{ backupError }}</p><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeBackupMode">取消</button></div></div></div>
     <div v-if="restoreConfirmOpen" class="dialog-backdrop" @click.self="closeRestoreConfirm"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-desc"><span class="dialog-icon">!</span><h2 id="restore-title">確認還原備份？</h2><p id="restore-desc">這會取代這台裝置目前的所有資料。<br />商品 {{ restoreCounts?.products ?? 0 }} 件、地點 {{ restoreCounts?.locations ?? 0 }} 個、群組 {{ restoreCounts?.groups ?? 0 }} 個、關聯 {{ (restoreCounts?.locationProducts ?? 0) + (restoreCounts?.groupProducts ?? 0) }} 筆、圖片 {{ restoreCounts?.images ?? 0 }} 張。</p><div v-if="restoreWarnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in restoreWarnings" :key="index">{{ warning }}</li></ul></div><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeRestoreConfirm">取消</button><button class="danger-fill" type="button" :disabled="backupBusy" @click="handleConfirmRestore">{{ backupBusy ? '還原中…' : '確認還原' }}</button></div></div></div>
+    <div v-if="shareConfirmOpen" class="dialog-backdrop" @click.self="closeShareConfirm">
+      <div class="dialog share-import-dialog" role="dialog" aria-modal="true" aria-labelledby="share-import-title" aria-describedby="share-import-desc">
+        <div class="share-dialog-header">
+          <span class="share-dialog-icon"><TransferIcon kind="import" /></span>
+          <div><span class="share-dialog-eyebrow">資料匯入</span><h2 id="share-import-title">{{ additiveImportFormat === 'backup' ? '新增／合併備份資料' : `匯入「${sharePreview?.title}」` }}</h2></div>
+          <button class="share-dialog-close" type="button" aria-label="關閉匯入視窗" :disabled="backupBusy" @click="closeShareConfirm">×</button>
+        </div>
+        <div class="share-dialog-body">
+          <div v-if="sharePreview?.conflicts.length" class="share-dialog-notice" id="share-import-desc"><strong>{{ sharePreview.conflicts.length }} 筆同名資料</strong><span>請逐筆選擇處理方式。本機已有的內容會保留。</span></div>
+          <p v-else id="share-import-desc" class="share-dialog-description">檔案已通過檢查。確認後將新增下列資料：</p>
+          <div v-if="!sharePreview?.conflicts.length" class="share-import-counts"><span>商品 <strong>{{ sharePreview?.added?.products ?? 0 }}</strong></span><span>地點 <strong>{{ sharePreview?.added?.locations ?? 0 }}</strong></span><span>群組 <strong>{{ sharePreview?.added?.groups ?? 0 }}</strong></span><span>關聯 <strong>{{ (sharePreview?.added?.locationProducts ?? 0) + (sharePreview?.added?.groupProducts ?? 0) }}</strong></span></div>
+          <div v-if="sharePreview?.conflicts.length" class="share-conflicts">
+            <fieldset v-for="conflict in sharePreview.conflicts" :key="`${conflict.type}:${conflict.sourceId}`" class="share-conflict">
+              <legend><span>{{ { products: '商品', locations: '地點', groups: '群組' }[conflict.type] }}</span>{{ conflict.name }}</legend>
+              <label class="share-choice" :class="{ selected: shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'rename' }"><input type="radio" :name="`share-${conflict.type}-${conflict.sourceId}`" :checked="shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'rename'" @change="setShareResolution(conflict, 'rename')" /><span><strong>重新命名後新增</strong><small>保留兩筆資料，建立一筆新的收藏。</small></span></label>
+              <input v-if="shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'rename'" v-model="shareResolutions[`${conflict.type}:${conflict.sourceId}`].name" class="share-choice-field" type="text" :aria-label="`${conflict.name} 的新名稱`" placeholder="輸入新名稱" maxlength="150" />
+              <label class="share-choice" :class="{ selected: shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'merge' }"><input type="radio" :name="`share-${conflict.type}-${conflict.sourceId}`" :checked="shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'merge'" @change="setShareResolution(conflict, 'merge')" /><span><strong>合併本機資料</strong><small>保留本機內容，只補入缺少的資料與關聯。</small></span></label>
+              <select v-if="shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'merge' && conflict.matches.length > 1" v-model="shareResolutions[`${conflict.type}:${conflict.sourceId}`].existingId" class="share-choice-field" :aria-label="`${conflict.name} 的合併對象`"><option v-for="match in conflict.matches" :key="match.id" :value="match.id">{{ match.name }}{{ match.detail ? ` · ${match.detail}` : '' }}</option></select>
+              <p v-else-if="shareResolutions[`${conflict.type}:${conflict.sourceId}`]?.action === 'merge'" class="share-merge-target">合併至本機的「{{ conflict.matches[0].name }}」{{ conflict.matches[0].detail ? ` · ${conflict.matches[0].detail}` : '' }}</p>
+            </fieldset>
+          </div>
+          <p v-if="!sharePreview?.conflicts.length && sharePreview && !Object.values(sharePreview.added).some(Boolean)" class="share-dialog-description">沒有可新增的資料。</p>
+          <div v-if="sharePreview?.warnings.length" class="restore-warnings"><p><strong>警告：</strong></p><ul><li v-for="(warning, index) in sharePreview.warnings" :key="index">{{ warning }}</li></ul></div>
+          <p v-if="shareError" class="form-error" role="alert">{{ shareError }}</p>
+        </div>
+        <div class="share-dialog-footer"><span v-if="sharePreview?.conflicts.length && !shareChoicesReady">請完成所有同名項目的選擇</span><span v-else>匯入前可再檢查處理方式</span><div class="dialog-actions"><button class="secondary-button" type="button" :disabled="backupBusy" @click="closeShareConfirm">取消</button><button class="primary-button" type="button" :disabled="backupBusy || !shareChoicesReady || (!sharePreview?.conflicts.length && !Object.values(sharePreview?.added ?? {}).some(Boolean))" @click="handleConfirmShareImport">{{ backupBusy ? '匯入中…' : '確認匯入' }}</button></div></div>
+      </div>
+    </div>
   </div>
 </template>
