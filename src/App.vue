@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import ProductForm from './components/ProductForm.vue'
+import SuggestionField from './components/SuggestionField.vue'
 import ProductPickerOption from './components/ProductPickerOption.vue'
 import LocationLinkPicker from './components/LocationLinkPicker.vue'
 import LinkedLocationDetail from './components/LinkedLocationDetail.vue'
@@ -128,13 +129,22 @@ const groupPickerOpen = ref(false)
 const groupPickerError = ref('')
 const groupPickerBusy = ref(false)
 const productGroupIds = ref([])
-const categories = computed(() => [...new Set(products.value.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
+function fieldOptions(records, field) {
+  return [...new Set(records.map(record => record[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'))
+}
+const categories = computed(() => fieldOptions(products.value, 'category'))
+const brands = computed(() => fieldOptions(products.value, 'brand'))
+const productNames = computed(() => fieldOptions(products.value, 'name'))
+const models = computed(() => fieldOptions(products.value, 'model'))
 const visible = computed(() => filterProducts(products.value, query.value, category.value))
 const productChoices = computed(() => {
   const needle = locationProductQuery.value.trim().toLocaleLowerCase('zh-TW')
   return needle ? products.value.filter(product => [product.name, product.brand, product.category].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle))) : products.value
 })
-const locationCities = computed(() => [...new Set(locations.value.map(location => location.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW')))
+const locationCities = computed(() => fieldOptions(locations.value, 'city'))
+const locationFieldOptions = computed(() => Object.fromEntries(
+  ['name', 'city', 'address', 'country', 'area'].map(field => [field, fieldOptions(locations.value, field)])
+))
 const visibleLocations = computed(() => {
   const needle = locationQuery.value.trim().toLocaleLowerCase('zh-TW')
   return locations.value.filter(location =>
@@ -150,6 +160,7 @@ const groupProductChoices = computed(() => {
   const needle = groupProductQuery.value.trim().toLocaleLowerCase('zh-TW')
   return products.value.filter(product => !needle || [product.name, product.brand, product.category].some(value => value?.toLocaleLowerCase('zh-TW').includes(needle)))
 })
+const groupNames = computed(() => fieldOptions(groups.value, 'name'))
 const detailImage = useImageUrl(computed(() => view.value === 'detail' ? selected.value?.imageReference : null))
 
 async function refresh() {
@@ -317,6 +328,9 @@ async function openLocationForm(location = null, preselectedProductId = null, in
   locationLinksFailed.value = false
   locationError.value = ''
   view.value = 'location-form'
+  listLocations().then(result => {
+    if (requestId === locationFormRequest && view.value === 'location-form') locations.value = result
+  }).catch(() => { /* suggestions remain unavailable */ })
   await nextTick()
   locationNameInput.value?.focus()
   if (location) {
@@ -421,6 +435,9 @@ async function openGroupForm(group = null, productId = null) {
   groupFormLinksLoading.value = Boolean(group)
   groupPickerOpen.value = false
   view.value = 'group-form'
+  listGroups().then(result => {
+    if (requestId === groupFormRequest && view.value === 'group-form') groups.value = result
+  }).catch(() => { /* suggestions remain unavailable */ })
   await nextTick()
   groupNameInput.value?.focus()
   if (group) {
@@ -889,18 +906,18 @@ function closeRestoreConfirm() {
         </section>
       </template>
 
-      <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" @save="handleSave" @cancel="goBack" />
+      <ProductForm v-else-if="view === 'form'" :product="selected" :saving="saving" :names="productNames" :brands="brands" :categories="categories" :models="models" @save="handleSave" @cancel="goBack" />
 
       <div v-else-if="view === 'location-form'" class="editor-shell location-editor">
         <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeLocationForm">← 返回</button><p class="eyebrow">MY PLACES / {{ selectedLocation ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedLocation ? '編輯地點' : '新增地點' }}</h1><p class="subtext">先記下地點名稱，再選擇可以在這裡買到的商品。</p></div></div>
         <form id="location-form" class="editor-grid" @submit.prevent="handleLocationSave">
           <div class="form-main panel">
             <div class="section-title"><span class="step">01</span><div><h2>地點資料</h2><p>只有名稱是必填，其餘可以稍後補上。</p></div></div>
-            <label class="field"><span>地點名稱 <em>必填</em></span><input ref="locationNameInput" v-model="locationDraft.name" type="text" required maxlength="150" placeholder="例如：松本清 新宿東口店" /></label>
-            <label class="field">城市／地區（選填）<input v-model="locationDraft.city" type="text" maxlength="100" placeholder="例如：東京、新宿或台北" /></label>
-            <label class="field">地址<input v-model="locationDraft.address" type="text" maxlength="300" placeholder="例如：新宿 3-24-1" /></label>
+            <SuggestionField ref="locationNameInput" v-model="locationDraft.name" label="地點名稱" required :maxlength="150" placeholder="例如：松本清 新宿東口店" :options="locationFieldOptions.name" />
+            <SuggestionField v-model="locationDraft.city" label="城市／地區（選填）" :maxlength="100" placeholder="例如：東京、新宿或台北" :options="locationFieldOptions.city" />
+            <SuggestionField v-model="locationDraft.address" label="地址" :maxlength="300" placeholder="例如：新宿 3-24-1" :options="locationFieldOptions.address" />
             <button class="location-extra-toggle" type="button" :aria-expanded="locationExtraOpen" aria-controls="location-extra-fields" @click="locationExtraOpen = !locationExtraOpen">{{ locationExtraOpen ? '收起位置資訊' : '更多位置資訊（選填）' }}<span aria-hidden="true">{{ locationExtraOpen ? '⌃' : '⌄' }}</span></button>
-            <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><label class="field">國家<input v-model="locationDraft.country" type="text" maxlength="100" placeholder="例如：日本" /></label><label class="field">區域<input v-model="locationDraft.area" type="text" maxlength="100" placeholder="例如：新宿區" /></label></div>
+            <div v-show="locationExtraOpen" id="location-extra-fields" class="location-field-row"><SuggestionField v-model="locationDraft.country" label="國家" :maxlength="100" placeholder="例如：日本" :options="locationFieldOptions.country" /><SuggestionField v-model="locationDraft.area" label="區域" :maxlength="100" placeholder="例如：新宿區" :options="locationFieldOptions.area" /></div>
             <label class="field">備註<textarea v-model="locationDraft.notes" maxlength="1000" rows="3" placeholder="營業時間、想買的東西…"></textarea></label>
           </div>
           <div class="form-side">
@@ -923,7 +940,7 @@ function closeRestoreConfirm() {
       <div v-else-if="view === 'group-form'" class="editor-shell group-editor">
         <div class="page-heading editor-heading"><div><button class="back-link" type="button" @click="closeGroupForm">← 返回</button><p class="eyebrow">MY GROUPS / {{ selectedGroup ? 'EDIT' : 'NEW' }}</p><h1>{{ selectedGroup ? '編輯群組' : '新增群組' }}</h1><p class="subtext">幫清單取個名字，再挑選要放進去的商品。</p></div></div>
         <form id="group-form" class="editor-grid" @submit.prevent="handleGroupSave">
-          <div class="form-main panel"><div class="section-title"><span class="step">01</span><div><h2>群組資訊</h2><p>只有名稱是必填。</p></div></div><label class="field"><span>群組名稱 <em>必填</em></span><input ref="groupNameInput" v-model="groupDraft.name" maxlength="150" required placeholder="例如：東京購物清單" /></label><fieldset class="group-choice"><legend>圖示</legend><div class="group-icon-options"><label v-for="option in GROUP_ICONS" :key="option.id"><input v-model="groupDraft.icon" type="radio" name="group-icon" :value="option.id" :aria-label="option.label" /><span><GroupIcon :icon="option.id" /></span></label></div></fieldset><fieldset class="group-choice"><legend>顏色</legend><div class="group-color-options"><label v-for="option in GROUP_COLORS" :key="option.id" :title="option.label"><input v-model="groupDraft.color" type="radio" name="group-color" :value="option.id" /><span :style="groupAppearance({ color: option.id })"><i aria-hidden="true"></i><small>{{ option.label }}</small></span></label></div></fieldset><label class="field">說明<textarea v-model="groupDraft.notes" maxlength="1000" rows="4" placeholder="這個群組想收藏什麼？"></textarea></label></div>
+          <div class="form-main panel"><div class="section-title"><span class="step">01</span><div><h2>群組資訊</h2><p>只有名稱是必填。</p></div></div><SuggestionField ref="groupNameInput" v-model="groupDraft.name" label="群組名稱" required :maxlength="150" placeholder="例如：東京購物清單" :options="groupNames" /><fieldset class="group-choice"><legend>圖示</legend><div class="group-icon-options"><label v-for="option in GROUP_ICONS" :key="option.id"><input v-model="groupDraft.icon" type="radio" name="group-icon" :value="option.id" :aria-label="option.label" /><span><GroupIcon :icon="option.id" /></span></label></div></fieldset><fieldset class="group-choice"><legend>顏色</legend><div class="group-color-options"><label v-for="option in GROUP_COLORS" :key="option.id" :title="option.label"><input v-model="groupDraft.color" type="radio" name="group-color" :value="option.id" /><span :style="groupAppearance({ color: option.id })"><i aria-hidden="true"></i><small>{{ option.label }}</small></span></label></div></fieldset><label class="field">說明<textarea v-model="groupDraft.notes" maxlength="1000" rows="4" placeholder="這個群組想收藏什麼？"></textarea></label></div>
           <div class="form-side">
             <section class="location-product-picker panel" aria-labelledby="group-form-products-title">
               <div class="section-title"><span class="step">02</span><div><h2 id="group-form-products-title">選擇商品</h2><p>同一件商品也能加入其他群組。</p></div></div>

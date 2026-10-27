@@ -148,6 +148,10 @@
 :root[data-theme='dark'] .group-choice label>span,
 :root[data-theme='dark'] .photo-picker .upload-button{background:var(--dark-raised);color:#fff;border-color:var(--dark-border)}
 :root[data-theme='dark'] .search-wrap input{color:#fff}
+:root[data-theme='dark'] .suggestion-list{background:var(--dark-surface);border-color:var(--dark-border)}
+:root[data-theme='dark'] .suggestion-list button{color:var(--dark-text)}
+:root[data-theme='dark'] .suggestion-list button:hover,
+:root[data-theme='dark'] .suggestion-list button.active{background:var(--dark-raised)}
 :root[data-theme='dark'] input::placeholder,
 :root[data-theme='dark'] textarea::placeholder{color:#b9c9da;opacity:1}
 :root[data-theme='dark'] input[type='checkbox']{accent-color:#fff}

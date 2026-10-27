@@ -2,8 +2,16 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { getImage } from '../data/products.js'
 import { prepareImage } from '../data/image.js'
+import SuggestionField from './SuggestionField.vue'
 
-const props = defineProps({ product: Object, saving: Boolean })
+const props = defineProps({
+  product: Object,
+  saving: Boolean,
+  names: { type: Array, default: () => [] },
+  brands: { type: Array, default: () => [] },
+  categories: { type: Array, default: () => [] },
+  models: { type: Array, default: () => [] },
+})
 const emit = defineEmits(['save', 'cancel'])
 const fields = reactive({ name: '', brand: '', category: '', model: '', notes: '' })
 const error = ref('')
@@ -68,12 +76,12 @@ function submit() {
     <form id="product-form" class="editor-grid" @submit.prevent="submit">
       <div class="form-main panel">
         <div class="section-title"><span class="step">01</span><div><h2>基本資料</h2><p>只有名稱是必填，其餘依你手邊的資訊填寫。</p></div></div>
-        <label class="field"><span>商品名稱 <em>必填</em></span><input v-model="fields.name" maxlength="150" required placeholder="例如：喜歡的咖啡杯" autocomplete="off" /></label>
+        <SuggestionField v-model="fields.name" label="商品名稱" required :maxlength="150" placeholder="例如：喜歡的咖啡杯" :options="names" />
         <div class="field-row">
-          <label class="field"><span>品牌</span><input v-model="fields.brand" placeholder="選填" /></label>
-          <label class="field"><span>分類</span><input v-model="fields.category" placeholder="例如：生活用品" /></label>
+          <SuggestionField v-model="fields.brand" label="品牌" placeholder="選填" :options="brands" />
+          <SuggestionField v-model="fields.category" label="分類" placeholder="例如：生活用品" :options="categories" />
         </div>
-        <label class="field"><span>型號 / 規格</span><input v-model="fields.model" placeholder="顏色、尺寸或型號" /></label>
+        <SuggestionField v-model="fields.model" label="型號 / 規格" placeholder="顏色、尺寸或型號" :options="models" />
         <label class="field"><span>備註</span><textarea v-model="fields.notes" rows="5" placeholder="記下喜歡它的原因、看到的資訊……"></textarea></label>
       </div>
       <div class="form-side">
