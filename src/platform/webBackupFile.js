@@ -21,10 +21,10 @@ export async function saveBackupFile(bytes, filename, mime) {
 }
 
 export async function readBackupFile() {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.gullstuff,application/zip'
+    input.accept = '.gullstuff,.zip,application/zip'
     input.style.display = 'none'
 
     let settled = false
@@ -33,11 +33,12 @@ export async function readBackupFile() {
       input.removeEventListener('cancel', onCancel)
       input.remove()
     }
-    const finish = value => {
+    const finish = (value, error) => {
       if (settled) return
       settled = true
       cleanup()
-      resolve(value)
+      if (error) reject(error)
+      else resolve(value)
     }
 
     const onChange = async () => {
@@ -47,7 +48,17 @@ export async function readBackupFile() {
         const buffer = await file.arrayBuffer()
         finish({ name: file.name, bytes: new Uint8Array(buffer) })
       } catch {
-        finish(null)
+        try {
+          const buffer = await new Promise((resolveRead, rejectRead) => {
+            const reader = new FileReader()
+            reader.onload = () => resolveRead(reader.result)
+            reader.onerror = () => rejectRead(reader.error)
+            reader.readAsArrayBuffer(file)
+          })
+          finish({ name: file.name, bytes: new Uint8Array(buffer) })
+        } catch {
+          finish(null, new Error(`無法讀取「${file.name}」。請確認檔案已完整下載，並選擇 .gullstuff 原始檔。`))
+        }
       }
     }
     // Modern browsers fire 'cancel' when the picker is dismissed with no file.

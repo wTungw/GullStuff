@@ -10,6 +10,7 @@ import { identityPart, locationIdentity } from './identity.js'
 // reused from web and native layers.
 
 export const BACKUP_FORMAT = 'gullstuff-backup'
+export const SHARE_FORMAT = 'gullstuff-share'
 export const BACKUP_SCHEMA_VERSION = 2
 export const MAX_BACKUP_BYTES = 500 * 1024 * 1024
 
@@ -58,8 +59,8 @@ function buildArchive(manifest, imageFiles) {
 // Serializes the whole database into a single zip byte array.
 // Accepts an optional platform hint (defaults to 'web') so callers may record
 // the originating environment; the core itself never inspects the platform.
-export async function exportBackup({ platform = 'web' } = {}) {
-  const [products, locations, locationProducts, groups, groupProducts, imageRecords] = await Promise.all([
+async function exportArchive({ platform, format, scope }) {
+  let [products, locations, locationProducts, groups, groupProducts, imageRecords] = await Promise.all([
     db.products.toArray(),
     db.locations.toArray(),
     db.locationProducts.toArray(),
@@ -67,6 +68,32 @@ export async function exportBackup({ platform = 'web' } = {}) {
     db.groupProducts.toArray(),
     db.images.toArray()
   ])
+
+  if (scope && scope.type !== 'all') {
+    if (scope.type === 'product') {
+      products = products.filter(product => product.id === scope.id)
+      if (!products.length) throw new Error('找不到要分享的商品。')
+      locations = []; locationProducts = []; groups = []; groupProducts = []
+    } else if (scope.type === 'location') {
+      locations = locations.filter(location => location.id === scope.id)
+      if (!locations.length) throw new Error('找不到要分享的地點。')
+      locationProducts = locationProducts.filter(link => link.locationId === scope.id)
+      const productIds = new Set(locationProducts.map(link => link.productId))
+      products = products.filter(product => productIds.has(product.id))
+      groups = []; groupProducts = []
+    } else if (scope.type === 'group') {
+      groups = groups.filter(group => group.id === scope.id)
+      if (!groups.length) throw new Error('找不到要分享的群組。')
+      groupProducts = groupProducts.filter(link => link.groupId === scope.id)
+      const productIds = new Set(groupProducts.map(link => link.productId))
+      products = products.filter(product => productIds.has(product.id))
+      locations = []; locationProducts = []
+    } else {
+      throw new Error('不支援的分享範圍。')
+    }
+    const imageIds = new Set(products.map(product => product.imageReference).filter(Boolean))
+    imageRecords = imageRecords.filter(image => imageIds.has(image.id))
+  }
 
   const imageFiles = []
   const imageEntries = []
@@ -80,12 +107,13 @@ export async function exportBackup({ platform = 'web' } = {}) {
   }
 
   const manifest = {
-    format: BACKUP_FORMAT,
+    format,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     appVersion: APP_VERSION,
     dbSchemaVersion: DB_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     platform,
+    ...(scope ? { scope } : {}),
     counts: {
       products: products.length,
       images: imageEntries.length,
@@ -104,16 +132,27 @@ export async function exportBackup({ platform = 'web' } = {}) {
 
   return {
     bytes: buildArchive(manifest, imageFiles),
-    filename: `gullstuff-backup-${timestampLabel()}.gullstuff`,
+    filename: `${format === SHARE_FORMAT ? `gullstuff-share-${scope.type}` : 'gullstuff-backup'}-${timestampLabel()}.gullstuff`,
     manifest
   }
+}
+
+export function exportBackup({ platform = 'web' } = {}) {
+  return exportArchive({ platform, format: BACKUP_FORMAT })
+}
+
+export function exportShare({ type = 'all', id, platform = 'web' } = {}) {
+  if (!['all', 'product', 'location', 'group'].includes(type) || (type !== 'all' && !id)) {
+    throw new Error('請選擇有效的分享範圍。')
+  }
+  return exportArchive({ platform, format: SHARE_FORMAT, scope: type === 'all' ? { type } : { type, id } })
 }
 
 // Validates a backup byte array without writing anything. Errors are collected
 // across the whole file (two-phase: container/envelope, then records) so the
 // caller can show every problem at once. `dataset` is only trustworthy when
 // `ok` is true; `manifest` is the parsed manifest or null.
-export function validateBackup(bytes) {
+export function validateBackup(bytes, { expectedFormat = BACKUP_FORMAT } = {}) {
   const errors = []
   const warnings = []
   const dataset = { products: [], locations: [], locationProducts: [], groups: [], groupProducts: [], images: [] }
@@ -156,7 +195,7 @@ export function validateBackup(bytes) {
   }
 
   // --- Phase 2: envelope ----------------------------------------------------
-  if (manifest.format !== BACKUP_FORMAT) errors.push('此檔案不是 GullStuff 備份。')
+  if (manifest.format !== expectedFormat) errors.push(`此檔案不是 GullStuff ${expectedFormat === SHARE_FORMAT ? '分享檔' : '備份'}。`)
   if (!Number.isInteger(manifest.schemaVersion) || manifest.schemaVersion < 1) {
     errors.push('備份格式版本無效。')
   } else if (manifest.schemaVersion > BACKUP_SCHEMA_VERSION) {
@@ -363,6 +402,27 @@ export function validateBackup(bytes) {
     .map(image => ({ id: image.id, blob: new Blob([image.bytes], { type: image.type }) }))
 
   return { ok: errors.length === 0, errors, warnings, dataset, manifest }
+}
+
+export function validateShare(bytes) {
+  const result = validateBackup(bytes, { expectedFormat: SHARE_FORMAT })
+  const scope = result.manifest?.scope
+  if (result.manifest && !['all', 'product', 'location', 'group'].includes(scope?.type)) {
+    result.errors.push('分享範圍無效。')
+    result.ok = false
+  } else if (result.ok && scope?.type !== 'all') {
+    const data = result.dataset
+    const valid = scope.type === 'product'
+      ? data.products.length === 1 && data.products[0].id === scope.id && !data.locations.length && !data.groups.length && !data.locationProducts.length && !data.groupProducts.length
+      : scope.type === 'location'
+        ? data.locations.length === 1 && data.locations[0].id === scope.id && !data.groups.length && !data.groupProducts.length
+        : data.groups.length === 1 && data.groups[0].id === scope.id && !data.locations.length && !data.locationProducts.length
+    if (!valid) {
+      result.errors.push('分享檔內容與選擇的範圍不符。')
+      result.ok = false
+    }
+  }
+  return result
 }
 
 // Atomically replaces the current database with the backup contents.

@@ -232,8 +232,12 @@
 .detail-heading{align-items:center;margin-bottom:28px}
 .detail-heading .back-link{margin-bottom:0}
 @media(max-width:640px){
-  .mobile-bar.is-detail{height:60px}
+  .mobile-bar.is-detail{height:60px;grid-template-columns:40px minmax(0,1fr) 86px}
   .mobile-bar.is-detail .mobile-wordmark{font-size:16px;letter-spacing:-.3px}
+  .mobile-detail-actions{grid-column:3;grid-row:1;display:flex;align-items:center;justify-content:flex-end;gap:4px}
+  .mobile-detail-actions button{min-height:36px;padding:0 5px;border:0;background:transparent;color:#21364f;font-size:12px;font-weight:700}
+  .mobile-detail-actions button:last-child{font-size:23px}
+  .mobile-detail-actions button:focus-visible{outline:2px solid #5e83ad;border-radius:5px}
 }
 .location-row{width:100%;background:transparent;border:0;border-bottom:1px solid #e8ebee;text-align:left;font:inherit;color:inherit}
 .location-row:hover{background:#f6f8fa}
@@ -487,6 +491,47 @@
 .storage-status-row p{margin:0;color:#525d6b;font-size:13px}
 .storage-status-row button{flex:none}
 .settings-actions{display:flex;gap:10px;margin-bottom:16px}
+.collection-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:none}
+.import-button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.import-button svg{display:block;width:17px;height:17px;flex:none}
+.share-icon-button{display:inline-grid;place-items:center;width:44px;min-width:44px;padding:0}
+.share-icon-button svg{display:block;width:19px;height:19px}
+.share-import-dialog{width:min(100%,560px);max-height:min(88dvh,760px);display:flex;flex-direction:column;overflow:hidden;padding:0;border:1px solid #e1e8f0;border-radius:20px;box-shadow:0 22px 70px #111d3240}
+.share-dialog-header{display:flex;align-items:center;gap:14px;padding:25px 28px 20px}
+.share-dialog-icon{display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:13px;background:#e8f0fa;color:#244a76}
+.share-dialog-icon svg{width:23px;height:23px}
+.share-dialog-eyebrow{color:#71829a;font-size:10px;font-weight:800;letter-spacing:1.7px}
+.share-dialog-header h2{margin:3px 0 0;color:#1c304a;font-size:21px;line-height:1.3;overflow-wrap:anywhere}
+.share-dialog-close{align-self:flex-start;margin-left:auto;padding:0;width:28px;height:28px;flex:none;border:0;border-radius:7px;background:transparent;color:#8190a2;font-size:23px;line-height:1}
+.share-dialog-close:hover{background:#edf1f6;color:#244a76}
+.share-dialog-body{min-height:0;overflow-y:auto;padding:0 28px 24px}
+.share-dialog-description{margin:0 0 14px!important;color:#657487!important;font-size:13px;line-height:1.7}
+.share-dialog-notice{display:grid;gap:4px;margin-bottom:18px;padding:13px 15px;border-radius:11px;background:#edf4fb;color:#45627e;font-size:12px;line-height:1.55}
+.share-dialog-notice strong{color:#214978;font-size:13px}
+.share-import-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
+.share-import-counts span{display:grid;gap:5px;padding:13px 8px;border-radius:10px;background:#f2f5f9;color:#69798b;text-align:center;font-size:11px}
+.share-import-counts strong{color:#263f5d;font-size:20px}
+.share-conflicts{display:grid;gap:16px}
+.share-conflict{display:grid;gap:9px;min-width:0;margin:0;padding:16px;border:1px solid #e1e7ef;border-radius:13px;background:#fafbfd}
+.share-conflict legend{max-width:100%;padding:0 6px;color:#223b59;font-size:14px;font-weight:800;overflow-wrap:anywhere}
+.share-conflict legend span{margin-right:7px;color:#6d85a2;font-size:11px;font-weight:700}
+.share-choice{display:grid!important;grid-template-columns:18px minmax(0,1fr);align-items:start!important;gap:10px!important;padding:12px;border:1px solid #e1e7ef;border-radius:10px;background:#fff;color:#34465b;cursor:pointer}
+.share-choice.selected{border-color:#7b9cc1;background:#eef5fd;box-shadow:0 0 0 2px #7b9cc121}
+.share-choice input[type='radio']{width:17px;height:17px;margin:2px 0 0;accent-color:#244a76;cursor:pointer}
+.share-choice span{display:grid;gap:3px;min-width:0}
+.share-choice strong{font-size:13px}
+.share-choice small{color:#7a8796;font-size:11px;font-weight:400;line-height:1.5}
+.share-choice-field{width:100%;min-height:40px;margin:0 0 2px;padding:8px 11px;border:1px solid #ccd8e6;border-radius:8px;background:#fff;color:#22354d;font-size:13px}
+.share-choice-field:focus{outline:2px solid #8eafd1;outline-offset:1px}
+.share-merge-target{margin:0!important;padding:0 3px;color:#63758a!important;font-size:11px!important;line-height:1.5}
+.share-dialog-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 28px 20px;border-top:1px solid #e8edf3;background:#fff}
+.share-dialog-footer>span{color:#8391a0;font-size:11px;line-height:1.5}
+.share-dialog-footer .dialog-actions{margin:0;flex:none}
+.backup-mode-dialog{width:min(100%,480px)}
+.backup-mode-options{display:grid;gap:10px;margin-top:20px}
+.backup-mode-options button{display:grid;gap:5px;width:100%;height:auto;min-height:70px;padding:13px 15px;text-align:left;white-space:normal}
+.backup-mode-options button strong{font-size:14px}
+.backup-mode-options button small{font-size:12px;font-weight:400;line-height:1.5}
 .settings-table-export{padding-top:20px;border-top:1px solid #e8ebee}
 .settings-table-export h3{margin:0 0 8px;color:#253952;font-size:16px}
 .settings-table-export .settings-intro{margin-bottom:12px}
@@ -496,6 +541,19 @@
 .restore-warnings p{margin:0 0 6px;color:#8a6d1c;font-size:11px;font-weight:700}
 .restore-warnings ul{margin:0;padding:0 0 0 18px;color:#8a6d1c;font-size:11px;line-height:1.6}
 @media(max-width:640px){
+  .share-import-dialog{max-height:90dvh;border-radius:18px}
+  .share-dialog-header{padding:20px 19px 17px}
+  .share-dialog-body{padding:0 19px 18px}
+  .share-dialog-footer{padding:14px 19px 17px}
+  .share-dialog-footer>span{display:none}
+  .share-dialog-footer .dialog-actions{width:100%}
+  .share-dialog-footer .dialog-actions button{flex:1}
+  .collection-heading-actions{gap:8px}
+  .collection-heading-actions .secondary-button{min-height:36px;padding:0 2px;background:transparent;border:0;color:#244a76;font-size:13px}
+  .collection-heading-actions .secondary-button:hover{background:transparent;color:#16365c;text-decoration:underline}
+  .import-button{gap:4px}
+  .import-button svg{width:15px;height:15px}
+  .mobile-detail-actions .share-icon-button{width:36px;min-width:36px;padding:0}
   .settings-results{max-width:none;padding:18px 15px 20px}
   .settings-section h2{font-size:16px}
   .settings-intro{font-size:12px}
